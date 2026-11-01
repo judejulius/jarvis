@@ -119,7 +119,7 @@ class AnthropicSession(
         for (block in response.content()) {
             block.text().getOrNull()?.let { text.append(it.text()) }
             block.toolUse().getOrNull()?.let { use ->
-                val input = runCatching { JSONObject(use._input().convert(Map::class.java)) }.getOrElse { JSONObject() }
+                val input = runCatching { JSONObject(use._input().convert(Map::class.java) ?: emptyMap<Any, Any>()) }.getOrElse { JSONObject() }
                 calls += ToolCall(use.id(), use.name(), input)
             }
         }

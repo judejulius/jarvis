@@ -58,6 +58,7 @@ class CrashSafetyTest {
     fun activateSurvivesWakeWordEngineFailing() {
         fakeInstall(WakeModel.dir(ctx), WakeModel.KEEP_FILES)
         fakeInstall(SpeechModel.dir(ctx), SpeechModel.KEEP_FILES)
+        Settings(ctx).switchedOn = true
         assertTrue(WakeModel.isInstalled(ctx) && SpeechModel.isInstalled(ctx))
         val controller = Robolectric.buildService(JarvisService::class.java).create().startCommand(0, 1)
         assertTrue(JarvisService.running)
