@@ -1,6 +1,7 @@
 package com.jarvis.assistant.agent
 
 import android.util.Base64
+import android.util.Log
 import com.jarvis.assistant.ProviderConfig
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -76,7 +77,7 @@ class OpenAiCompatibleSession(
 
         val json = http.newCall(request).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code} from ${config.preset.label}: ${text.take(500)}")
+            if (!resp.isSuccessful) { Log.e("JarvisAPI", "HTTP ${resp.code}: $text"); throw IOException("HTTP ${resp.code} from ${config.preset.label}: ${text.take(500)}") }
             JSONObject(text)
         }
 
@@ -129,7 +130,7 @@ class OpenAiCompatibleSession(
     }
 
     companion object {
-        private const val KEEP_FULL_OBSERVATIONS = 3
+        private const val KEEP_FULL_OBSERVATIONS = 1
         const val SCREEN_MARKER = "=== SCREEN"
     }
 }
