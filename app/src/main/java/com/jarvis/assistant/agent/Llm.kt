@@ -30,6 +30,12 @@ data class AssistantTurn(
  * format, which matters for providers (like Claude) whose responses must be replayed verbatim.
  */
 interface ChatSession {
+    /** Cancel an in-flight request when supported by the provider. */
+    fun cancel() {}
+
+    /** Seed earlier plain-text conversation exchanges before the first request. */
+    fun seedHistory(exchanges: List<Pair<String, String>>) {}
+
     /** Send the initial user message, or tool outputs for the previous turn's tool calls. */
     fun send(userText: String?, toolOutputs: List<ToolOutput>): AssistantTurn
 }

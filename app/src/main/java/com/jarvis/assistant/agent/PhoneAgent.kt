@@ -16,6 +16,7 @@ interface AgentHost {
     /** Speak [question] and return what the person says back, or null if they didn't answer. */
     fun ask(question: String): String?
     val isCancelled: Boolean
+    fun attachSession(session: ChatSession) {}
 }
 
 data class AgentResult(val success: Boolean, val summary: String)
@@ -70,7 +71,10 @@ class PhoneAgent(private val settings: Settings, private val host: AgentHost) {
     }
 
     private fun runWith(a11y: JarvisAccessibilityService, task: String, config: ProviderConfig, name: String, takingOver: Boolean): Outcome {
+        val sessionStartedAt = android.os.SystemClock.elapsedRealtime()
         val session = Llm.newSession(config, systemPrompt(), tools())
+        Log.i(TAG, "session_create=${android.os.SystemClock.elapsedRealtime() - sessionStartedAt}ms")
+        host.attachSession(session)
         val handover = if (takingOver && actionLog.isNotEmpty()) {
             "\n\nAnother assistant started this task and was interrupted. It already did these actions, in order:\n" +
                 actionLog.joinToString("\n") { "- $it" } + "\nCheck the current screen and continue from there; don't repeat anything already done (for example, don't send a message twice)."
@@ -82,12 +86,18 @@ class PhoneAgent(private val settings: Settings, private val host: AgentHost) {
         for (step in 1..settings.maxSteps) {
             if (host.isCancelled) return Outcome.Done(AgentResult(false, "Okay, I stopped."))
             host.status("Thinking with $name (step $step)…")
+            val modelStartedAt = android.os.SystemClock.elapsedRealtime()
             val turn = try {
                 session.send(userText, outputs)
             } catch (e: Exception) {
+                Log.i(TAG, "step=$step model_failed_after=${android.os.SystemClock.elapsedRealtime() - modelStartedAt}ms")
+                if (host.isCancelled) {
+                    return Outcome.Done(AgentResult(false, "Okay, I stopped."))
+                }
                 Log.e(TAG, "model call failed", e)
                 return Outcome.ModelFailed("$name: ${e.message?.take(200)}")
             }
+            Log.i(TAG, "step=$step model=${android.os.SystemClock.elapsedRealtime() - modelStartedAt}ms tool_calls=${turn.toolCalls.size}")
             userText = null
             if (turn.stopNote != null && turn.toolCalls.isEmpty()) return Outcome.Done(AgentResult(false, turn.stopNote))
 
@@ -117,7 +127,9 @@ class PhoneAgent(private val settings: Settings, private val host: AgentHost) {
         val a = call.arguments
         host.status(describe(call))
         return try {
+            val toolStartedAt = android.os.SystemClock.elapsedRealtime()
             var settleMs = 900L
+            var waitMs = 0L
             var image: ByteArray? = null
             val message = when (call.name) {
                 "tap" -> a11y.tap(a.getInt("element_id"))
@@ -146,16 +158,27 @@ class PhoneAgent(private val settings: Settings, private val host: AgentHost) {
                 "ask_user" -> { settleMs = 0; host.ask(a.getString("question"))?.let { "The user said: \"$it\"" } ?: "The user did not answer." }
                 else -> return ToolOutput(call.id, "Unknown tool ${call.name}.", isError = true)
             }
-            if (settleMs > 0) Thread.sleep(settleMs)
-            ToolOutput(call.id, "$message\n\n${observe(a11y)}", imageJpeg = image)
+            val actionMs = android.os.SystemClock.elapsedRealtime() - toolStartedAt
+            if (settleMs > 0) {
+                val waitStartedAt = android.os.SystemClock.elapsedRealtime()
+                Thread.sleep(settleMs)
+                waitMs = android.os.SystemClock.elapsedRealtime() - waitStartedAt
+            }
+            val screen = observe(a11y)
+            Log.i(TAG, "tool=${call.name} action=${actionMs}ms wait=${waitMs}ms total=${android.os.SystemClock.elapsedRealtime() - toolStartedAt}ms")
+            ToolOutput(call.id, "$message\n\n$screen", imageJpeg = image)
         } catch (e: Exception) {
             Log.w(TAG, "tool ${call.name} failed", e)
             ToolOutput(call.id, "Failed: ${e.message}\n\n${observe(a11y)}", isError = true)
         }
     }
 
-    private fun observe(a11y: JarvisAccessibilityService): String =
-        "${OpenAiCompatibleSession.SCREEN_MARKER} ===\n" + a11y.readScreen().text
+    private fun observe(a11y: JarvisAccessibilityService): String {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val screen = a11y.readScreen().text
+        Log.i(TAG, "screen_read=${android.os.SystemClock.elapsedRealtime() - startedAt}ms chars=${screen.length}")
+        return "${OpenAiCompatibleSession.SCREEN_MARKER} ===\n$screen"
+    }
 
     private fun describe(call: ToolCall) = when (call.name) {
         "open_app" -> "Opening ${call.arguments.optString("name")}…"

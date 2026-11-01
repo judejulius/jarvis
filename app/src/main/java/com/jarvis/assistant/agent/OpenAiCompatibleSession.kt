@@ -2,8 +2,10 @@ package com.jarvis.assistant.agent
 
 import android.util.Base64
 import android.util.Log
+import android.os.SystemClock
 import com.jarvis.assistant.ProviderConfig
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -12,6 +14,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Any server that speaks the OpenAI Chat Completions API with tool calling:
@@ -28,6 +32,14 @@ class OpenAiCompatibleSession(
         .readTimeout(240, TimeUnit.SECONDS) // local models can be slow
         .build()
 
+    private val cancelled = AtomicBoolean(false)
+    private val activeCall = AtomicReference<Call?>(null)
+
+    override fun cancel() {
+        cancelled.set(true)
+        activeCall.getAndSet(null)?.cancel()
+    }
+
     private val tools = JSONArray().apply {
         toolSpecs.forEach { spec ->
             put(
@@ -40,6 +52,14 @@ class OpenAiCompatibleSession(
     }
 
     private val messages = mutableListOf(JSONObject().put("role", "system").put("content", system))
+
+    override fun seedHistory(exchanges: List<Pair<String, String>>) {
+        if (messages.size != 1) return
+        exchanges.takeLast(3).forEach { (user, assistant) ->
+            messages += JSONObject().put("role", "user").put("content", user)
+            messages += JSONObject().put("role", "assistant").put("content", assistant)
+        }
+    }
 
     override fun send(userText: String?, toolOutputs: List<ToolOutput>): AssistantTurn {
         val images = mutableListOf<ByteArray>()
@@ -66,7 +86,7 @@ class OpenAiCompatibleSession(
         val body = JSONObject()
             .put("model", config.model)
             .put("messages", JSONArray(trimmedHistory()))
-            .put("max_tokens", 96)
+            .put("max_tokens", if (tools.length() > 0) 512 else 192)
             .apply {
                 if (tools.length() > 0) {
                     put("tools", tools)
@@ -80,10 +100,36 @@ class OpenAiCompatibleSession(
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val json = http.newCall(request).execute().use { resp ->
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) { Log.e("JarvisAPI", "HTTP ${resp.code}: $text"); throw IOException("HTTP ${resp.code} from ${config.preset.label}: ${text.take(500)}") }
-            JSONObject(text)
+        if (cancelled.get()) throw IOException("Cancelled")
+        val call = http.newCall(request)
+        activeCall.set(call)
+        if (cancelled.get()) call.cancel()
+
+        val requestStartedAt = SystemClock.elapsedRealtime()
+        val json = try {
+            val response = call.execute()
+            val headersAt = SystemClock.elapsedRealtime()
+            response.use { resp ->
+                val text = resp.body?.string().orEmpty()
+                val bodyReadAt = SystemClock.elapsedRealtime()
+                if (!resp.isSuccessful) {
+                    Log.e("JarvisAPI", "HTTP ${resp.code}: $text")
+                    throw IOException("HTTP ${resp.code} from ${config.preset.label}: ${text.take(500)}")
+                }
+                val parsed = JSONObject(text)
+                val parsedAt = SystemClock.elapsedRealtime()
+                Log.i(
+                    "JarvisTiming",
+                    "provider=${config.preset.label} model=${config.model} " +
+                        "headers=${headersAt - requestStartedAt}ms " +
+                        "body=${bodyReadAt - headersAt}ms " +
+                        "json=${parsedAt - bodyReadAt}ms " +
+                        "total=${parsedAt - requestStartedAt}ms"
+                )
+                parsed
+            }
+        } finally {
+            activeCall.compareAndSet(call, null)
         }
 
         val choice = json.getJSONArray("choices").getJSONObject(0)

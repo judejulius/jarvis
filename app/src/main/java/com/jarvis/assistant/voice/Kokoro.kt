@@ -61,16 +61,26 @@ object Kokoro {
      */
     fun speak(context: Context, text: String, speaker: Int, speed: Float, onDone: () -> Unit) {
         val app = context.applicationContext
+        val queuedAt = SystemClock.elapsedRealtime()
         val ticket = AudioOut.interrupt()
         worker.execute {
+            val startedAt = SystemClock.elapsedRealtime()
+            var generationMs = 0L
+            var cachedAudio = false
+            var playbackStarted = false
             try {
                 val player = AudioOut.Playback(ticket)
                 val cached = cacheFile(app, text, speaker, speed).takeIf { it.exists() }?.let { readPcm(it) }
                 if (cached != null) {
+                    cachedAudio = true
+                    playbackStarted = true
                     player.write(cached)
                 } else {
                     val engine = engine(app) ?: throw IllegalStateException("Kokoro unavailable")
+                    val generationStartedAt = SystemClock.elapsedRealtime()
                     val audio = engine.generateWithCallback(text, speaker, speed, ChunkCallback(player))
+                    generationMs = SystemClock.elapsedRealtime() - generationStartedAt
+                    playbackStarted = true
                     if (text in STOCK_PHRASES && AudioOut.isCurrent(ticket)) writePcm(cacheFile(app, text, speaker, speed), audio.samples)
                 }
                 player.finish()
@@ -78,6 +88,9 @@ object Kokoro {
                 Log.e(TAG, "speak failed", e)
                 lastError = "Speaking failed: $e"
             }
+            val completedAt = SystemClock.elapsedRealtime()
+            Log.i(TAG, "timing queue=${startedAt - queuedAt}ms generation=${generationMs}ms " +
+                "total=${completedAt - queuedAt}ms cached=$cachedAudio started=$playbackStarted")
             scheduleUnload()
             if (AudioOut.isCurrent(ticket)) main.post(onDone)
         }

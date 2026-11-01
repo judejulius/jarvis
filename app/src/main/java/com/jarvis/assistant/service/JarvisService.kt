@@ -26,6 +26,7 @@ import com.jarvis.assistant.Settings
 import com.jarvis.assistant.agent.AgentHost
 import com.jarvis.assistant.agent.PhoneAgent
 import com.jarvis.assistant.agent.Llm
+import com.jarvis.assistant.agent.ChatSession
 import com.jarvis.assistant.ui.MainActivity
 import com.jarvis.assistant.voice.CommandListener
 import com.jarvis.assistant.voice.Speaker
@@ -87,17 +88,17 @@ class JarvisService : Service() {
         when (intent?.action) {
             ACTION_STOP_TASK -> {
                 cancelled = true
-                voice.cancelCommand(); google.cancel()
-                if (state == State.LISTENING_COMMAND) {
-                    // Cancel listening: nothing will call onHeard now, so go back to waiting.
-                    stopSpeaking()
-                    state = State.IDLE
-                    island { it.hide() }
-                    update("Cancelled")
+                taskId++
+                activeSession?.cancel()
+                activeSession = null
+                voice.cancelCommand()
+                google.cancel()
+                stopSpeaking()
+                state = State.IDLE
+                island { it.hide() }
+                update("Cancelled")
+                if (settings.switchedOn) {
                     resumeListening()
-                } else {
-                    stopSpeaking()
-                    if (state == State.WORKING) update("Stopping…")
                 }
             }
             ACTION_SHUTDOWN -> {
@@ -118,6 +119,9 @@ class JarvisService : Service() {
         status = "Offline"
         statusListener?.invoke(status)
         cancelled = true
+        taskId++
+        activeSession?.cancel()
+        activeSession = null
         island { it.hide() }
         if (!startFailed) {
             voice.release()
@@ -139,6 +143,7 @@ class JarvisService : Service() {
     private var speechId = 0
     /** Increases with every task; a result from a task that was interrupted is never spoken. */
     @Volatile private var taskId = 0
+    @Volatile private var activeSession: ChatSession? = null
     /** Recent requests and replies, so follow-ups like "and tell her I'll be late" make sense. */
     private val conversation = ArrayDeque<Pair<String, String>>()
     private var lastExchangeAt = 0L
@@ -193,6 +198,8 @@ class JarvisService : Service() {
                 // "Hey Jarvis" during a task: stop it and take the new command.
                 cancelled = true
                 taskId++
+                activeSession?.cancel()
+                activeSession = null
                 interruptSpeech()
                 listen(promptIfQuiet = true)
             }
@@ -207,7 +214,12 @@ class JarvisService : Service() {
     private fun onBargeIn(stop: Boolean) {
         if (destroyed) return
         interruptSpeech()
-        if (state == State.WORKING) { cancelled = true; taskId++ }
+        if (state == State.WORKING) {
+            cancelled = true
+            taskId++
+            activeSession?.cancel()
+            activeSession = null
+        }
         if (stop) {
             state = State.IDLE
             voice.cancelCommand()
@@ -326,7 +338,14 @@ class JarvisService : Service() {
                     emptyList()
                 )
 
-                val turn = session.send(message, emptyList())
+                session.seedHistory(earlier)
+                activeSession = session
+                if (cancelled || id != taskId) session.cancel()
+                val turn = try {
+                    session.send(message, emptyList())
+                } finally {
+                    if (activeSession === session) activeSession = null
+                }
                 if (turn.toolCalls.isNotEmpty()) {
                     lastError = "${profile.name} unexpectedly returned a tool call"
                     continue
@@ -339,6 +358,9 @@ class JarvisService : Service() {
 
                 lastError = turn.stopNote ?: "${profile.name} returned an empty reply"
             } catch (e: Throwable) {
+                if (cancelled || id != taskId) {
+                    return com.jarvis.assistant.agent.AgentResult(false, "Okay, I stopped.")
+                }
                 Log.e(TAG, "chat failed with ${profile.name}", e)
                 lastError = e.message ?: "Connection failed"
             }
@@ -354,6 +376,7 @@ class JarvisService : Service() {
         state = State.WORKING
         cancelled = false
         val id = ++taskId
+        activeSession = null
         voice.cancelCommand()
         // Do not restart wake-word detection during model processing.
         // This prevents accidental wake-word detections from cancelling a slow Qwen request.
@@ -412,7 +435,7 @@ class JarvisService : Service() {
 
     /** Goes back to waiting for "Hey Jarvis" (loading any models downloaded since). */
     private fun resumeListening() {
-        if (destroyed || state != State.IDLE) return
+        if (destroyed || !settings.switchedOn || state != State.IDLE) return
         voice.echoCancellation = settings.interruptByTalking
         voice.load { error ->
             if (destroyed || state != State.IDLE) return@load
@@ -449,15 +472,33 @@ class JarvisService : Service() {
     /** Bridges the agent (worker thread) to the voice UI (main thread) for task [id]. */
     private fun hostFor(id: Int) = object : AgentHost {
         override val isCancelled get() = cancelled || id != taskId
-        override fun status(text: String) { main.post { update(text) } }
+        override fun attachSession(session: ChatSession) {
+            activeSession = session
+            if (cancelled || id != taskId) session.cancel()
+        }
+        override fun status(text: String) {
+            main.post {
+                if (!destroyed && !cancelled && id == taskId) update(text)
+            }
+        }
         override fun ask(question: String): String? {
             val latch = CountDownLatch(1)
             var answer: String? = null
             main.post {
+                if (destroyed || cancelled || id != taskId) {
+                    latch.countDown()
+                    return@post
+                }
                 update("Asking: $question")
                 say(question) {
                     island { it.listening(if (voice.canTranscribe) ({ voice.partialText }) else null, { voice.level }) }
-                    val got: (String?) -> Unit = { text -> answer = text; latch.countDown(); island { it.working() } }
+                    val got: (String?) -> Unit = { text ->
+                        if (!destroyed && !cancelled && id == taskId) {
+                            answer = text
+                            island { it.working() }
+                        }
+                        latch.countDown()
+                    }
                     if (voice.canTranscribe) voice.listenForCommand(10_000) { got(it) }
                     else { voice.stop(); google.listen { got(it); if (voice.hasWakeWord) voice.start() } }
                 }
@@ -465,7 +506,7 @@ class JarvisService : Service() {
             // Give up after a minute, or straight away if the task is stopped.
             val deadline = System.currentTimeMillis() + 60_000
             while (!latch.await(200, TimeUnit.MILLISECONDS)) {
-                if (cancelled || System.currentTimeMillis() > deadline) break
+                if (destroyed || cancelled || id != taskId || System.currentTimeMillis() > deadline) break
             }
             return answer
         }

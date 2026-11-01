@@ -52,6 +52,20 @@ class AnthropicSession(
 
     private val history = mutableListOf<MessageParam>()
 
+    override fun seedHistory(exchanges: List<Pair<String, String>>) {
+        if (history.isNotEmpty()) return
+        exchanges.takeLast(3).forEach { (user, assistant) ->
+            history += MessageParam.builder()
+                .role(MessageParam.Role.USER)
+                .content(user)
+                .build()
+            history += MessageParam.builder()
+                .role(MessageParam.Role.ASSISTANT)
+                .content(assistant)
+                .build()
+        }
+    }
+
     override fun send(userText: String?, toolOutputs: List<ToolOutput>): AssistantTurn {
         val blocks = mutableListOf<ContentBlockParam>()
         // All tool results for one assistant turn go back in a single user message.
