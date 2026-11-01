@@ -315,12 +315,7 @@ class JarvisService : Service() {
                     if (id == taskId && !destroyed) update("Thinking with ${profile.name}…")
                 }
 
-                val history = earlier.joinToString("\n") { (asked, replied) ->
-                    "User: $asked\nJarvis: $replied"
-                }
-
-                val message = if (history.isBlank()) task else
-                    "Previous conversation:\n$history\n\nCurrent message: $task"
+                val message = task
 
                 val session = Llm.newSession(
                     config,

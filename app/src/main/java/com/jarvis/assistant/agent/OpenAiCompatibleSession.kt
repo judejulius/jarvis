@@ -66,7 +66,7 @@ class OpenAiCompatibleSession(
         val body = JSONObject()
             .put("model", config.model)
             .put("messages", JSONArray(trimmedHistory()))
-            .put("max_tokens", 384)
+            .put("max_tokens", 96)
             .apply {
                 if (tools.length() > 0) {
                     put("tools", tools)
