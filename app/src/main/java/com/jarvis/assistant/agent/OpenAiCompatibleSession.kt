@@ -68,7 +68,7 @@ class OpenAiCompatibleSession(
             .put("messages", JSONArray(trimmedHistory()))
             .put("max_tokens", 384)
             .apply {
-                if (tools.isNotEmpty()) {
+                if (tools.length() > 0) {
                     put("tools", tools)
                     put("tool_choice", "auto")
                 }
