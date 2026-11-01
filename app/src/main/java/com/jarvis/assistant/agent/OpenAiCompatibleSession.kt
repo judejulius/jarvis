@@ -66,8 +66,13 @@ class OpenAiCompatibleSession(
         val body = JSONObject()
             .put("model", config.model)
             .put("messages", JSONArray(trimmedHistory()))
-            .put("tools", tools)
-            .put("tool_choice", "auto")
+            .put("max_tokens", 384)
+            .apply {
+                if (tools.isNotEmpty()) {
+                    put("tools", tools)
+                    put("tool_choice", "auto")
+                }
+            }
 
         val request = Request.Builder()
             .url(config.baseUrl.trimEnd('/') + "/chat/completions")

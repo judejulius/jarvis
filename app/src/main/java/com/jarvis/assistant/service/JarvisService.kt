@@ -25,6 +25,7 @@ import com.jarvis.assistant.accessibility.JarvisAccessibilityService
 import com.jarvis.assistant.Settings
 import com.jarvis.assistant.agent.AgentHost
 import com.jarvis.assistant.agent.PhoneAgent
+import com.jarvis.assistant.agent.Llm
 import com.jarvis.assistant.ui.MainActivity
 import com.jarvis.assistant.voice.CommandListener
 import com.jarvis.assistant.voice.Speaker
@@ -273,29 +274,116 @@ class JarvisService : Service() {
         }
     }
 
+
+    /** Route clear phone actions to the phone agent; ordinary conversation goes straight to the LLM. */
+    private fun isPhoneAction(task: String): Boolean {
+        val t = task.lowercase()
+        val patterns = listOf(
+            Regex("""\b(open|launch|close|exit|switch to|go to|tap|click|press|scroll|swipe|type|enter|send|text|call|dial|hang up|answer|reject|play|pause|skip|next|previous|turn on|turn off|enable|disable|increase|decrease|raise|lower|volume|brightness|screenshot|lock|unlock|navigate|share|copy|paste|set alarm|set a reminder|set reminder|set timer|change wallpaper)\b"""),
+            Regex("""(kholo|khol do|band karo|bhejo|bhej do|call karo|phone karo|lagao|laga do|bajao|chalao|chala do|on karo|off karo|badha do|kam karo|ghata do|screenshot lo|photo lo|record karo|mute karo|unmute karo|silent kar do|alarm laga|reminder laga)""")
+        )
+        return patterns.any { it.containsMatchIn(t) }
+    }
+
+    /** Lightweight conversational path: no accessibility, screen observation or phone tools. */
+    private fun runChatTask(
+        task: String,
+        earlier: List<Pair<String, String>>,
+        id: Int
+    ): com.jarvis.assistant.agent.AgentResult {
+        val models = settings.modelsInOrder().let {
+            if (settings.fallbackEnabled) it else it.take(1)
+        }
+        if (models.isEmpty()) {
+            return com.jarvis.assistant.agent.AgentResult(false, "No AI model is set up yet.")
+        }
+
+        var lastError = ""
+        for ((index, profile) in models.withIndex()) {
+            if (cancelled || id != taskId) {
+                return com.jarvis.assistant.agent.AgentResult(false, "Cancelled.")
+            }
+
+            val config = profile.toConfig()
+            if (config.preset.needsKey && config.apiKey.isBlank()) {
+                lastError = "${profile.name} has no API key"
+                continue
+            }
+
+            try {
+                main.post {
+                    if (id == taskId && !destroyed) update("Thinking with ${profile.name}…")
+                }
+
+                val history = earlier.joinToString("\n") { (asked, replied) ->
+                    "User: $asked\nJarvis: $replied"
+                }
+
+                val message = if (history.isBlank()) task else
+                    "Previous conversation:\n$history\n\nCurrent message: $task"
+
+                val session = Llm.newSession(
+                    config,
+                    "You are Jarvis, a helpful Android phone assistant. " +
+                        "Reply naturally and concisely in the user's language, including Hindi or Hinglish. " +
+                        "You are in conversation mode and cannot operate the phone in this mode. " +
+                        "Never claim you performed a phone action.",
+                    emptyList()
+                )
+
+                val turn = session.send(message, emptyList())
+                if (turn.toolCalls.isNotEmpty()) {
+                    lastError = "${profile.name} unexpectedly returned a tool call"
+                    continue
+                }
+
+                val reply = turn.text.trim()
+                if (reply.isNotBlank()) {
+                    return com.jarvis.assistant.agent.AgentResult(true, reply)
+                }
+
+                lastError = turn.stopNote ?: "${profile.name} returned an empty reply"
+            } catch (e: Throwable) {
+                Log.e(TAG, "chat failed with ${profile.name}", e)
+                lastError = e.message ?: "Connection failed"
+            }
+        }
+
+        return com.jarvis.assistant.agent.AgentResult(
+            false, "I couldn't reach any of your AI models. $lastError"
+        )
+    }
+
     private fun runTask(task: String) {
         if (destroyed || state == State.WORKING) return
         state = State.WORKING
         cancelled = false
         val id = ++taskId
         voice.cancelCommand()
-        // Keep listening for "Hey Jarvis" while working, so the user can stop or redirect the task.
-        if (voice.hasWakeWord && settings.wakeWordEnabled) voice.start()
+        // Do not restart wake-word detection during model processing.
+        // This prevents accidental wake-word detections from cancelling a slow Qwen request.
         lastTask = task
         island { it.working(task) }
         update("Working on: $task")
         say("On it.")
         val earlier = recentConversation()
+        val phoneAction = isPhoneAction(task)
+
         worker.execute {
             val result = try {
-                waitForUnlock()
-                PhoneAgent(settings, hostFor(id)).run(task, earlier)
+                if (phoneAction) {
+                    waitForUnlock()
+                    PhoneAgent(settings, hostFor(id)).run(task, earlier)
+                } else {
+                    runChatTask(task, earlier, id)
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "task failed", e)
                 com.jarvis.assistant.agent.AgentResult(false, "Something went wrong: ${e.message}")
             }
+
             main.post {
-                if (id != taskId || destroyed) return@post // interrupted by a newer command
+                if (id != taskId || destroyed) return@post
                 lastResult = result.summary
                 remember(task, result.summary)
                 island { it.finish(result.success, result.summary) }
