@@ -36,10 +36,16 @@ class CommandListener(private val context: Context) {
             override fun onPartialResults(partialResults: Bundle?) = Unit
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
+        val settings = com.jarvis.assistant.Settings(context)
+        val lang = if (settings.speechLanguage == "auto") java.util.Locale.getDefault().toLanguageTag() else settings.speechLanguage
+
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
         r.startListening(intent)
     }
 

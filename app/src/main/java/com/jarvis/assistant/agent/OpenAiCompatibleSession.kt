@@ -83,12 +83,15 @@ class OpenAiCompatibleSession(
             messages += JSONObject().put("role", "user").put("content", if (images.isEmpty()) userText else parts)
         }
 
+        val hasTools = tools.length() > 0
         val body = JSONObject()
             .put("model", config.model)
             .put("messages", JSONArray(trimmedHistory()))
-            .put("max_tokens", if (tools.length() > 0) 512 else 192)
+            .put("max_tokens", if (hasTools) 512 else 192)
+            .put("temperature", if (hasTools) 0.2 else 0.7)
+            .put("top_p", 0.9)
             .apply {
-                if (tools.length() > 0) {
+                if (hasTools) {
                     put("tools", tools)
                     put("tool_choice", "auto")
                 }

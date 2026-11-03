@@ -23,10 +23,14 @@ import androidx.core.content.ContextCompat
 import com.jarvis.assistant.R
 import com.jarvis.assistant.accessibility.JarvisAccessibilityService
 import com.jarvis.assistant.Settings
+import com.jarvis.assistant.OperatingMode
 import com.jarvis.assistant.agent.AgentHost
+import com.jarvis.assistant.agent.FastCommandRouter
+import com.jarvis.assistant.agent.LocalServerManager
 import com.jarvis.assistant.agent.PhoneAgent
 import com.jarvis.assistant.agent.Llm
 import com.jarvis.assistant.agent.ChatSession
+import com.jarvis.assistant.memory.MemoryManager
 import com.jarvis.assistant.ui.MainActivity
 import com.jarvis.assistant.voice.CommandListener
 import com.jarvis.assistant.voice.Speaker
@@ -53,6 +57,7 @@ class JarvisService : Service() {
     @Volatile private var state = State.IDLE
     @Volatile private var cancelled = false
     private var startFailed = false
+    private var wakeLock: PowerManager.WakeLock? = null
     /** Set in onDestroy; stops late callbacks (speech finishing, models loading) from listening again. */
     @Volatile private var destroyed = false
 
@@ -78,6 +83,13 @@ class JarvisService : Service() {
             startFailed = true
             stopSelf()
             return
+        }
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jarvis:wake_continuous")
+            wakeLock?.acquire(24 * 60 * 60 * 1000L)
+        } catch (e: Exception) {
+            Log.w(TAG, "could not acquire wake lock", e)
         }
         running = true
         resumeListening()
@@ -129,6 +141,10 @@ class JarvisService : Service() {
             speaker.shutdown()
         }
         worker.shutdownNow()
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {}
+        wakeLock = null
         super.onDestroy()
     }
 
@@ -303,12 +319,43 @@ class JarvisService : Service() {
         earlier: List<Pair<String, String>>,
         id: Int
     ): com.jarvis.assistant.agent.AgentResult {
-        val models = settings.modelsInOrder().let {
-            if (settings.fallbackEnabled) it else it.take(1)
-        }
-        if (models.isEmpty()) {
+        val allModels = settings.modelsInOrder()
+        if (allModels.isEmpty()) {
             return com.jarvis.assistant.agent.AgentResult(false, "No AI model is set up yet.")
         }
+
+        val isOffline = settings.operatingMode == OperatingMode.OFFLINE
+        val isOnline = settings.operatingMode == OperatingMode.ONLINE
+
+        val models = when {
+            isOffline -> allModels.filter { it.baseUrl.contains("localhost") || it.baseUrl.contains("127.0.0.1") || it.providerId == "termux_qwen" || it.providerId == "custom" }
+            isOnline -> allModels.filter { !(it.baseUrl.contains("localhost") || it.baseUrl.contains("127.0.0.1") || it.providerId == "termux_qwen") } +
+                allModels.filter { it.baseUrl.contains("localhost") || it.baseUrl.contains("127.0.0.1") || it.providerId == "termux_qwen" }
+            else -> { // AUTOMATIC mode
+                val localModel = allModels.firstOrNull { it.baseUrl.contains("localhost") || it.baseUrl.contains("127.0.0.1") || it.providerId == "termux_qwen" }
+                val isLocalHealthy = localModel != null && LocalServerManager.isServerHealthy(localModel.baseUrl)
+                if (isLocalHealthy) {
+                    listOf(localModel!!) + allModels.filter { it.id != localModel.id }
+                } else {
+                    val cloudModels = allModels.filter { !(it.baseUrl.contains("localhost") || it.baseUrl.contains("127.0.0.1") || it.providerId == "termux_qwen") }
+                    if (cloudModels.isNotEmpty()) cloudModels + (if (localModel != null) listOf(localModel) else emptyList())
+                    else allModels
+                }
+            }
+        }.let {
+            if (settings.fallbackEnabled) it else it.take(1)
+        }
+
+        if (models.isEmpty()) {
+            return com.jarvis.assistant.agent.AgentResult(false, if (isOffline) "Offline mode is active, but no local Qwen model is available." else "No AI models available for current mode.")
+        }
+
+        val memoryContext = MemoryManager.get(this).getPromptContext()
+        val systemPrompt = "You are Jarvis, a helpful Android phone assistant. " +
+            "Reply naturally and concisely in the user's language, including Hindi or Hinglish. " +
+            "You are in conversation mode and cannot operate the phone in this mode. " +
+            "Never claim you performed a phone action." +
+            (if (memoryContext.isNotEmpty()) "\n\n$memoryContext\n" else "")
 
         var lastError = ""
         for ((index, profile) in models.withIndex()) {
@@ -322,27 +369,38 @@ class JarvisService : Service() {
                 continue
             }
 
+            // Supervise and ensure local server is running if using Termux Qwen
+            val isLocal = profile.baseUrl.contains("localhost") || profile.baseUrl.contains("127.0.0.1") || profile.providerId == "termux_qwen"
+            if (isLocal && !LocalServerManager.isServerHealthy(profile.baseUrl)) {
+                if (settings.autoStartLocalServer) {
+                    val readyLatch = CountDownLatch(1)
+                    var serverReady = false
+                    main.post { if (id == taskId && !destroyed) update("Warming up local Qwen in Termux…") }
+                    LocalServerManager.ensureServerRunning(this, profile.baseUrl, timeoutSeconds = 7, onStatus = { st ->
+                        main.post { if (id == taskId && !destroyed) update(st) }
+                    }) { ok ->
+                        serverReady = ok
+                        readyLatch.countDown()
+                    }
+                    readyLatch.await(8, TimeUnit.SECONDS)
+                    if (!serverReady) {
+                        lastError = "Local Qwen server in Termux could not be started"
+                        continue
+                    }
+                }
+            }
+
             try {
                 main.post {
                     if (id == taskId && !destroyed) update("Thinking with ${profile.name}…")
                 }
 
-                val message = task
-
-                val session = Llm.newSession(
-                    config,
-                    "You are Jarvis, a helpful Android phone assistant. " +
-                        "Reply naturally and concisely in the user's language, including Hindi or Hinglish. " +
-                        "You are in conversation mode and cannot operate the phone in this mode. " +
-                        "Never claim you performed a phone action.",
-                    emptyList()
-                )
-
+                val session = Llm.newSession(config, systemPrompt, emptyList())
                 session.seedHistory(earlier)
                 activeSession = session
                 if (cancelled || id != taskId) session.cancel()
                 val turn = try {
-                    session.send(message, emptyList())
+                    session.send(task, emptyList())
                 } finally {
                     if (activeSession === session) activeSession = null
                 }
@@ -378,9 +436,23 @@ class JarvisService : Service() {
         val id = ++taskId
         activeSession = null
         voice.cancelCommand()
-        // Do not restart wake-word detection during model processing.
-        // This prevents accidental wake-word detections from cancelling a slow Qwen request.
         lastTask = task
+
+        // 1. FAST COMMAND LAYER: execute instant deterministic actions (< 50ms)
+        val fastResult = FastCommandRouter.execute(this, task)
+        if (fastResult.handled) {
+            lastResult = fastResult.summary
+            remember(task, fastResult.summary)
+            island { it.finish(fastResult.success, fastResult.summary) }
+            update(fastResult.summary)
+            say(fastResult.summary, interruptible = true) {
+                state = State.IDLE
+                afterReply()
+            }
+            return
+        }
+
+        // 2. Complex AI reasoning or multi-step UI automation
         island { it.working(task) }
         update("Working on: $task")
         say("On it.")
@@ -437,6 +509,15 @@ class JarvisService : Service() {
     private fun resumeListening() {
         if (destroyed || !settings.switchedOn || state != State.IDLE) return
         voice.echoCancellation = settings.interruptByTalking
+        voice.wakeEnabled = settings.wakeWordEnabled
+
+        // Fast path: if wake word model is already active, resume listening immediately (<1ms)
+        if (voice.hasWakeWord) {
+            voice.start()
+            update("Say \"Hey Jarvis\"")
+            return
+        }
+
         voice.load { error ->
             if (destroyed || state != State.IDLE) return@load
             voice.wakeEnabled = settings.wakeWordEnabled

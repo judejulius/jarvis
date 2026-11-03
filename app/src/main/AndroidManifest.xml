@@ -10,9 +10,17 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Needed to show the "let Jarvis run in the background" prompt -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Needed to supervise and auto-start local llama-server in Termux -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <!-- Fast command permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
-    <!-- Lets open_app see every launchable app on Android 11+ -->
+    <!-- Lets open_app and Termux see every launchable app on Android 11+ -->
     <queries>
+        <package android:name="com.termux" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

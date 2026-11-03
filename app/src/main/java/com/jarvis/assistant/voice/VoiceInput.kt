@@ -148,6 +148,10 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
     /** Loads whichever models are installed. Calls [ready] on the main thread with an error message or null. */
     fun load(ready: (error: String?) -> Unit) {
         if (released) return
+        if (spotter != null && recognizer != null) {
+            main.post { if (!released) ready(null) }
+            return
+        }
         Thread {
             val errors = mutableListOf<String>()
             if (spotter == null && WakeModel.isInstalled(context)) {

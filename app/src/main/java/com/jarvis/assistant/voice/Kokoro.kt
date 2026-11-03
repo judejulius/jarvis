@@ -12,6 +12,8 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -26,9 +28,24 @@ import java.util.concurrent.TimeUnit
 object Kokoro {
     private const val TAG = "Kokoro"
     const val SAMPLE_RATE = 24000
-    private const val IDLE_UNLOAD_MS = 120_000L
+    private const val IDLE_UNLOAD_MS = 300_000L
     const val MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2"
-    val STOCK_PHRASES = listOf("Yes?", "On it.", "Please unlock your phone and I'll get started.")
+    val STOCK_PHRASES = listOf(
+        "Yes?",
+        "On it.",
+        "Please unlock your phone and I'll get started.",
+        "Sorry, I didn't catch that.",
+        "Okay.",
+        "Done.",
+        "Went back.",
+        "Going home.",
+        "Flashlight turned on.",
+        "Flashlight turned off.",
+        "Volume increased.",
+        "Volume decreased.",
+        "Playing music.",
+        "Paused music."
+    )
 
     fun modelDir(context: Context) = File(context.filesDir, "kokoro")
     fun isInstalled(context: Context) =
@@ -167,13 +184,21 @@ object Kokoro {
 
     private fun writePcm(f: File, samples: FloatArray) {
         f.parentFile?.mkdirs()
-        DataOutputStream(f.outputStream().buffered()).use { out ->
-            out.writeInt(samples.size)
-            samples.forEach { out.writeFloat(it) }
-        }
+        val buf = ByteBuffer.allocate(4 + samples.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(samples.size)
+        val fb = buf.asFloatBuffer()
+        fb.put(samples)
+        f.outputStream().use { it.write(buf.array()) }
     }
 
     private fun readPcm(f: File): FloatArray? = runCatching {
-        DataInputStream(f.inputStream().buffered()).use { inp -> FloatArray(inp.readInt()) { inp.readFloat() } }
+        val bytes = f.readBytes()
+        if (bytes.size < 4) return null
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buf.getInt()
+        if (bytes.size < 4 + count * 4) return null
+        val samples = FloatArray(count)
+        buf.asFloatBuffer().get(samples)
+        samples
     }.getOrNull()
 }

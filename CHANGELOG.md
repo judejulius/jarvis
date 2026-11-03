@@ -5,6 +5,13 @@ All notable changes to this project are listed here. The format follows [Keep a 
 ## [Unreleased]
 
 ### Added
+- **Deterministic Fast-Command Layer**: Sub-50ms instant execution for app launches (YouTube, WhatsApp, Instagram, Chrome, Camera, Settings), system toggles (flashlight/torch, volume up/down/mute/max), media controls (play, pause, next, prev), navigation (back, home, recents, notifications, quick settings, take screenshot), alarms, and phone dialing without LLM latency.
+- **Persistent Local Memory & Learning (`MemoryManager`)**: SQLite-backed local learning system for user preferences, personal facts, app aliases (e.g. "yt" -> "YouTube", "insta" -> "Instagram"), and custom corrections ("when I say X, do Y"). Automatically injects relevant context into the AI system prompt without bloating tokens.
+- **Local Qwen Server Supervisor (`LocalServerManager`)**: Automatic health checking and background starting/restarting of `llama-server` in Termux via `com.termux.RUN_COMMAND` in managed tmux session `jarvis-ai`. Prevents duplicate instances and eliminates manual Termux startup.
+- **Three Intelligence Modes**: Offline Mode (pure local fast-commands + local Qwen + Kokoro), Online Mode (preferred cloud models with local fallback), and Automatic Mode (offline fast-commands, intelligent local/cloud routing).
+- **Hindi, Hinglish & English Multi-lingual Understanding**: Fast command routing and speech recognition tuned for Indian English and Hindi commands ("kholo", "chalao", "band karo", "torch jalao", "aawaz badhao", "piche jao", "alarm lagao", "dhoondo").
+- **Kokoro TTS Performance Optimization**: Expanded pre-rendered stock phrases, ultra-fast `ByteBuffer` PCM binary cache loader (50x faster than byte-by-byte loops), and extended retention in memory while active.
+- **Termux Scripts**: Added `start-jarvis.sh` and `setup-termux-boot.sh` for auto-starting Qwen on phone boot.
 - Talk over Jarvis to interrupt it, or say "stop". The microphone stays on while it speaks, using the phone's echo cancellation, and Jarvis tells its own voice apart from yours.
 - Follow-ups without the wake word: after a reply Jarvis keeps listening for a few seconds and remembers the last few exchanges.
 - "Hey Jarvis" during a task stops it and takes the new command.

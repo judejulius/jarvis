@@ -191,6 +191,9 @@ class PhoneAgent(private val settings: Settings, private val host: AgentHost) {
     private fun systemPrompt(): String {
         val now = SimpleDateFormat("EEEE d MMMM yyyy, HH:mm", Locale.getDefault()).format(Date())
         val notes = settings.personalNotes.trim()
+        val memoryContext = JarvisAccessibilityService.instance?.let {
+            com.jarvis.assistant.memory.MemoryManager.get(it).getPromptContext()
+        }.orEmpty()
         return """
 You are Jarvis, an Android phone-control assistant. Complete the user's spoken task using the available tools.
 
@@ -217,7 +220,7 @@ COMPLETION:
 - Give a short spoken summary and set success correctly.
 
 Current date/time: $now.
-${if (notes.isNotEmpty()) "User notes:\n$notes\n" else ""}""".trim()
+${if (notes.isNotEmpty()) "User notes:\n$notes\n" else ""}${if (memoryContext.isNotEmpty()) "\n$memoryContext\n" else ""}""".trim()
     }
 
     private fun tools(): List<ToolSpec> = buildList {

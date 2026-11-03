@@ -8,6 +8,9 @@ import java.util.UUID
 /** The kind of wire API a provider speaks. */
 enum class ApiKind { ANTHROPIC, OPENAI_COMPATIBLE }
 
+/** The operating mode deciding intelligence routing between local and cloud AI. */
+enum class OperatingMode { AUTOMATIC, OFFLINE, ONLINE }
+
 /** A built-in provider preset. Every field except [kind] can be overridden by the user. */
 data class ProviderPreset(
     val id: String,
@@ -20,13 +23,14 @@ data class ProviderPreset(
 
 val PROVIDERS = listOf(
     ProviderPreset("anthropic", "Claude (Anthropic)", ApiKind.ANTHROPIC, "https://api.anthropic.com", "claude-opus-5-5", true),
+    ProviderPreset("termux_qwen", "Local Qwen (Termux)", ApiKind.OPENAI_COMPATIBLE, "http://127.0.0.1:8080/v1", "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf", false),
     ProviderPreset("openai", "OpenAI", ApiKind.OPENAI_COMPATIBLE, "https://api.openai.com/v1", "gpt-5", true),
     ProviderPreset("lmstudio", "LM Studio (local)", ApiKind.OPENAI_COMPATIBLE, "http://192.168.1.100:1234/v1", "local-model", false),
     ProviderPreset("ollama", "Ollama (local)", ApiKind.OPENAI_COMPATIBLE, "http://192.168.1.100:11434/v1", "qwen2.5:14b", false),
     ProviderPreset("openrouter", "OpenRouter", ApiKind.OPENAI_COMPATIBLE, "https://openrouter.ai/api/v1", "anthropic/claude-opus-5-5", true),
     ProviderPreset("gemini", "Google Gemini", ApiKind.OPENAI_COMPATIBLE, "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", true),
     ProviderPreset("groq", "Groq", ApiKind.OPENAI_COMPATIBLE, "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", true),
-    ProviderPreset("custom", "Custom (OpenAI-compatible)", ApiKind.OPENAI_COMPATIBLE, "http://localhost:8080/v1", "", false),
+    ProviderPreset("custom", "Custom (OpenAI-compatible)", ApiKind.OPENAI_COMPATIBLE, "http://127.0.0.1:8080/v1", "", false),
 )
 
 /** A model the user has saved. Several can exist; one is primary, the rest are fallbacks in order. */
@@ -102,6 +106,21 @@ class Settings(context: Context) {
     var onboarded: Boolean
         get() = prefs.getBoolean("onboarded", false)
         set(v) = prefs.edit().putBoolean("onboarded", v).apply()
+
+    /** Controls whether AI operations prefer local Qwen, cloud providers, or auto-route. */
+    var operatingMode: OperatingMode
+        get() = runCatching { OperatingMode.valueOf(prefs.getString("operating_mode", OperatingMode.AUTOMATIC.name)!!) }.getOrDefault(OperatingMode.AUTOMATIC)
+        set(v) = prefs.edit().putString("operating_mode", v.name).apply()
+
+    /** Automatically supervise and launch Termux llama-server when local Qwen is required. */
+    var autoStartLocalServer: Boolean
+        get() = prefs.getBoolean("auto_start_local_server", true)
+        set(v) = prefs.edit().putBoolean("auto_start_local_server", v).apply()
+
+    /** Preferred speech recognition language: "auto", "en-IN", "hi-IN", etc. */
+    var speechLanguage: String
+        get() = prefs.getString("speech_language", "auto")!!
+        set(v) = prefs.edit().putString("speech_language", v).apply()
 
     // ---- Models ----
 
