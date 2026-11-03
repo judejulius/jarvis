@@ -493,6 +493,10 @@ object FastCommandRouter {
                 val label = q.replaceFirstChar { it.uppercase() }
                 return FastCommandResult(true, true, "Opening $label.")
             }
+
+            // The command was understood, but the target app is unavailable.
+            val label = q.replaceFirstChar { it.uppercase() }
+            return FastCommandResult(true, false, "$label is not installed or cannot be launched.")
         }
 
         return null
