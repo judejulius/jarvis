@@ -168,16 +168,33 @@ class MemoryStore private constructor(context: Context) :
     /** Deletes notes that mention [what] and app names that match it. Returns how many were removed. */
     fun forget(what: String): Int {
         val w = what.trim().lowercase()
-        if (w.length < 3) return 0
+        if (w.isEmpty()) return 0
+
         val db = writableDatabase
         var removed = 0
-        val ids = db.rawQuery("SELECT id FROM fact WHERE lower(text) LIKE ?", arrayOf("%$w%")).use {
+
+        // App aliases can be short (for example, "yt"), so remove exact
+        // alias/label matches before applying the minimum length for facts.
+        val phrase = AppMatcher.cleanQuery(what)
+        removed += db.delete(
+            "alias",
+            "phrase = ? OR lower(label) = ?",
+            arrayOf(phrase, w),
+        )
+
+        // Avoid deleting unrelated facts from very short search terms.
+        if (w.length < 3) return removed
+
+        val ids = db.rawQuery(
+            "SELECT id FROM fact WHERE lower(text) LIKE ?",
+            arrayOf("%$w%"),
+        ).use {
             val l = ArrayList<Long>()
             while (it.moveToNext()) l += it.getLong(0)
             l
         }
+
         ids.forEach { delete(Kind.FACT, it); removed++ }
-        removed += db.delete("alias", "phrase = ? OR lower(label) = ?", arrayOf(AppMatcher.cleanQuery(w), w))
         return removed
     }
 
