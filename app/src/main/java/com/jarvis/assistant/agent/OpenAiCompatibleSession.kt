@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import android.os.SystemClock
 import com.jarvis.assistant.ProviderConfig
+import com.jarvis.assistant.ai.Endpoints
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Call
 import okhttp3.OkHttpClient
@@ -27,9 +28,21 @@ class OpenAiCompatibleSession(
     toolSpecs: List<ToolSpec>,
 ) : ChatSession {
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(240, TimeUnit.SECONDS) // local models can be slow
+    /** A server on this phone: fail fast when it is down, give it time when it is busy reading a long prompt. */
+    private val onPhone = Endpoints.isLoopback(config.baseUrl)
+    private val withTools = toolSpecs.isNotEmpty()
+
+    // One shared client (connection pool and threads); only the timeouts differ per session.
+    private val http = SHARED_CLIENT.newBuilder()
+        .connectTimeout(if (onPhone) 3 else 20, TimeUnit.SECONDS)
+        .readTimeout(
+            when {
+                onPhone && withTools -> 240L // a phone-control prompt is long and the phone's model is slow
+                onPhone -> 90L
+                else -> 120L
+            },
+            TimeUnit.SECONDS,
+        )
         .build()
 
     private val cancelled = AtomicBoolean(false)
@@ -40,16 +53,7 @@ class OpenAiCompatibleSession(
         activeCall.getAndSet(null)?.cancel()
     }
 
-    private val tools = JSONArray().apply {
-        toolSpecs.forEach { spec ->
-            put(
-                JSONObject().put("type", "function").put(
-                    "function",
-                    JSONObject().put("name", spec.name).put("description", spec.description).put("parameters", spec.parameters)
-                )
-            )
-        }
-    }
+    private val tools = toolsJson(toolSpecs)
 
     private val messages = mutableListOf(JSONObject().put("role", "system").put("content", system))
 
@@ -83,24 +87,28 @@ class OpenAiCompatibleSession(
             messages += JSONObject().put("role", "user").put("content", if (images.isEmpty()) userText else parts)
         }
 
-        val hasTools = tools.length() > 0
         val body = JSONObject()
             .put("model", config.model)
             .put("messages", JSONArray(trimmedHistory()))
-            .put("max_tokens", if (hasTools) 512 else 192)
-            .put("temperature", if (hasTools) 0.2 else 0.7)
-            .put("top_p", 0.9)
+            .put("max_tokens", maxTokens())
             .apply {
-                if (hasTools) {
+                if (tools.length() > 0) {
                     put("tools", tools)
                     put("tool_choice", "auto")
                 }
+                if (onPhone) {
+                    // llama.cpp options: reuse the cached start of the prompt, and answer steadily instead of creatively.
+                    put("cache_prompt", true)
+                    put("temperature", 0.3)
+                }
             }
 
+        val bodyText = body.toString()
+        Log.i("JarvisTiming", "request provider=${config.preset.label} local=$onPhone promptChars=${bodyText.length}")
         val request = Request.Builder()
             .url(config.baseUrl.trimEnd('/') + "/chat/completions")
             .apply { if (config.apiKey.isNotBlank()) header("Authorization", "Bearer ${config.apiKey}") }
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .post(bodyText.toRequestBody("application/json".toMediaType()))
             .build()
 
         if (cancelled.get()) throw IOException("Cancelled")
@@ -162,6 +170,13 @@ class OpenAiCompatibleSession(
         return AssistantTurn(message.optString("content", "").takeUnless { message.isNull("content") } ?: "", calls, note)
     }
 
+    private fun maxTokens(): Int = when {
+        withTools && onPhone -> 320
+        withTools -> 512
+        onPhone -> 160
+        else -> 192
+    }
+
     /**
      * Screen dumps are large and only the latest one matters, so older ones are shortened before
      * sending. This keeps long tasks inside the small context windows local models often have.
@@ -186,5 +201,18 @@ class OpenAiCompatibleSession(
     companion object {
         private const val KEEP_FULL_OBSERVATIONS = 1
         const val SCREEN_MARKER = "=== SCREEN"
+        private val SHARED_CLIENT: OkHttpClient by lazy { OkHttpClient.Builder().build() }
+
+        /** The OpenAI "tools" array for [specs]. Also used to warm the local model's prompt cache. */
+        fun toolsJson(specs: List<ToolSpec>): JSONArray = JSONArray().apply {
+            specs.forEach { spec ->
+                put(
+                    JSONObject().put("type", "function").put(
+                        "function",
+                        JSONObject().put("name", spec.name).put("description", spec.description).put("parameters", spec.parameters),
+                    ),
+                )
+            }
+        }
     }
 }

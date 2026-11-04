@@ -4,13 +4,20 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to the same branch replaces a build that is still running.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -27,10 +34,9 @@ jobs:
           path: app/libs/*.aar
           key: sherpa-onnx-${{ hashFiles('app/build.gradle.kts') }}
 
-      - name: Unit tests and lint
-        run: ./gradlew testDebugUnitTest lintDebug
-
-      - name: Build APK
+      # The APK is built and uploaded first, so a failing test or lint rule never hides an installable build.
+      # The tests and lint still run below and still turn the workflow red when they fail.
+      - name: Build debug APK
         run: ./gradlew assembleDebug
 
       - uses: actions/upload-artifact@v4
@@ -38,8 +44,23 @@ jobs:
           name: jarvis-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Unit tests and lint
+        run: ./gradlew testDebugUnitTest lintDebug
+
+      - name: Upload test and lint reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-and-lint-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/test-results/
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: screenshots
           path: app/build/screenshots/
+          if-no-files-found: ignore

@@ -14,17 +14,25 @@ how long it takes from "Jarvis has something to say" to "sound comes out of the 
 
 ## 2. Kokoro (on-device) — biggest wins
 
-- [x] **Don't cold-load the model mid-conversation.** Increased unload timeout to 5 minutes so conversational replies don't pay reload cost.
+- [x] **Don't cold-load the model mid-conversation.** (Done: 10 minutes, and released on memory pressure.)
+- [ ] (original note)  `Kokoro.IDLE_UNLOAD_MS` is 2 minutes, so a reply after
+      a short pause pays the full model load. Options: make the timeout a setting, keep it loaded while the
+      service is in the foreground, or only unload on `onTrimMemory()` instead of a timer.
 - [ ] **Warm up earlier.** `Speaker.warmUp()` is only called in `JarvisService.listen()`. Also call it on the
       wake word itself and when a task starts, so loading overlaps with the user talking / the agent working.
-- [x] **Cache more stock phrases.** Expanded `Kokoro.STOCK_PHRASES` with `"Sorry, I didn't catch that."`, `"Okay."`, `"Done."`, navigation and toggle confirmations.
+- [x] **Cache more stock phrases.** (Done: nine short replies added.)
+- [ ] (original note)  Only `"Yes?"`, `"On it."` and the unlock prompt are pre-rendered
+      (`Kokoro.STOCK_PHRASES`). Add the other fixed lines Jarvis says, e.g. `"Sorry, I didn't catch that."`,
+      `"Okay."`, `"Done."`.
 - [ ] **Shorter first chunk.** Generation is already streamed sentence by sentence (`maxNumSentences = 1`), but a
       long first sentence still delays the first sound. Split the first sentence at a comma/clause boundary so the
       first chunk is short, then stream the rest normally.
 - [ ] **Benchmark `numThreads`.** It's `cores / 2` clamped to 2..4. Try 2, 4 and 6 on a real phone with the
       latency logging above and pick what's fastest (big.LITTLE cores make more threads not always better).
 - [ ] Try running the int8 model with the XNNPACK / NNAPI provider in sherpa-onnx and compare.
-- [x] **Faster phrase cache loading:** Implemented direct `ByteBuffer.asFloatBuffer()` binary reading in `Kokoro.kt`.
+- [ ] Faster phrase cache loading: `readPcm()` reads one float at a time through `DataInputStream`. Read the file
+      into a `ByteBuffer` and copy with `asFloatBuffer()` instead. Also key the cache on something stronger than
+      `text.hashCode()` to avoid collisions.
 
 ## 3. Cloud voices
 

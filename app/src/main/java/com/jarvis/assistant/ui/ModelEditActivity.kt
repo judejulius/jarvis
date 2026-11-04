@@ -76,7 +76,7 @@ class ModelEditActivity : AppCompatActivity() {
     }
 
     private fun showFieldsFor(p: ProviderPreset) {
-        val local = p.id in setOf("lmstudio", "ollama", "custom", "termux_qwen")
+        val local = p.id in setOf("lmstudio", "ollama", "custom")
         // Cloud providers have a fixed address, so only local/custom servers show it.
         ui.baseUrlLayout.visibility = if (local) View.VISIBLE else View.GONE
         ui.apiKeyLayout.visibility = if (p.needsKey || p.id == "custom") View.VISIBLE else View.GONE
@@ -148,7 +148,6 @@ class ModelEditActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_ID = "id"
         private val HINTS = mapOf(
-            "termux_qwen" to "Local Qwen running via llama-server in Termux (127.0.0.1:8080). Jarvis can automatically start and supervise the server.",
             "anthropic" to "Get an API key at console.anthropic.com → API Keys. Low effort makes phone tasks noticeably faster.",
             "openai" to "Get an API key at platform.openai.com → API keys. Use any model that supports tool calling.",
             "lmstudio" to "On your computer: open LM Studio → Developer → start the server and turn on \"Serve on Local Network\". Enter your computer's IP address below and load a model that supports tool calling (e.g. Qwen).",

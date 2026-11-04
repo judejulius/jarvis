@@ -16,7 +16,8 @@ object ScreenReader {
     private const val MAX_ELEMENTS = 300
     private const val MAX_TEXT = 100
 
-    fun capture(service: AccessibilityService): ScreenSnapshot {
+    /** [maxElements] caps how many elements are listed. Small local models get a shorter list to keep prompts short. */
+    fun capture(service: AccessibilityService, maxElements: Int = MAX_ELEMENTS): ScreenSnapshot {
         val elements = LinkedHashMap<Int, AccessibilityNodeInfo>()
         val out = StringBuilder()
         var foreground: String? = null
@@ -41,9 +42,9 @@ object ScreenReader {
         out.append("Screen size: ${screen.width()}x${screen.height()}. Foreground app: ${foreground ?: "unknown"}\n")
         for ((label, root) in roots) {
             out.append("-- $label --\n")
-            walk(root, 0, elements, out, screen)
+            walk(root, 0, elements, out, screen, maxElements)
         }
-        if (elements.size >= MAX_ELEMENTS) out.append("(more elements not shown; scroll or use look_at_screen)\n")
+        if (elements.size >= maxElements) out.append("(more elements not shown; scroll to see more)\n")
         return ScreenSnapshot(out.toString(), elements, foreground)
     }
 
@@ -53,8 +54,9 @@ object ScreenReader {
         elements: MutableMap<Int, AccessibilityNodeInfo>,
         out: StringBuilder,
         screen: Rect,
+        maxElements: Int,
     ) {
-        if (elements.size >= MAX_ELEMENTS || !node.isVisibleToUser) return
+        if (elements.size >= maxElements || !node.isVisibleToUser) return
         val bounds = Rect().also { node.getBoundsInScreen(it) }
         if (!Rect.intersects(bounds, screen)) return
 
@@ -90,7 +92,7 @@ object ScreenReader {
         }
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            walk(child, childDepth, elements, out, screen)
+            walk(child, childDepth, elements, out, screen, maxElements)
         }
     }
 
