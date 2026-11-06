@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -25,6 +26,23 @@ import com.jarvis.assistant.accessibility.JarvisAccessibilityService
 import com.jarvis.assistant.Settings
 import com.jarvis.assistant.agent.AgentHost
 import com.jarvis.assistant.agent.PhoneAgent
+import com.jarvis.assistant.agent.Llm
+import com.jarvis.assistant.agent.AgentResult
+import com.jarvis.assistant.agent.ChatSession
+import com.jarvis.assistant.ai.AiMode
+import com.jarvis.assistant.ai.AiRouter
+import com.jarvis.assistant.ai.Endpoints
+import com.jarvis.assistant.ai.LocalServerManager
+import com.jarvis.assistant.ai.LocalWarmup
+import com.jarvis.assistant.ai.TaskKind
+import com.jarvis.assistant.memory.MemoryStore
+import com.jarvis.assistant.router.AppMatcher
+import com.jarvis.assistant.router.FastActionExecutor
+import com.jarvis.assistant.router.FastCommand
+import com.jarvis.assistant.router.FastCommandRouter
+import com.jarvis.assistant.router.MemoryIntentParser
+import com.jarvis.assistant.util.LatencyTrace
+import com.jarvis.assistant.voice.Kokoro
 import com.jarvis.assistant.ui.MainActivity
 import com.jarvis.assistant.voice.CommandListener
 import com.jarvis.assistant.voice.Speaker
@@ -48,6 +66,16 @@ class JarvisService : Service() {
     private lateinit var voice: VoiceInput
     /** Fallback when the offline speech model isn't downloaded. */
     private lateinit var google: CommandListener
+
+    // The assistant's brain. Created on first use so starting the service stays cheap.
+    private val memoryStore by lazy { MemoryStore.get(this) }
+    private val localServer by lazy { LocalServerManager(this, settings) }
+    private val aiRouter by lazy { AiRouter(this, settings, localServer) { runCatching { memoryStore }.getOrNull() } }
+    private val fastActions by lazy { FastActionExecutor(this, settings) { runCatching { memoryStore }.getOrNull() } }
+    private val trace = LatencyTrace({ SystemClock.elapsedRealtime() }) { Log.i("JarvisLatency", it) }
+
+    /** An app name that could not be opened, and when. If the user repeats the command with the right name soon after, the old phrase is learned. */
+    @Volatile private var failedApp: Pair<String, Long>? = null
     @Volatile private var state = State.IDLE
     @Volatile private var cancelled = false
     private var startFailed = false
@@ -63,6 +91,8 @@ class JarvisService : Service() {
         settings = Settings(this)
         speaker = Speaker(this)
         voice = VoiceInput(this) { onWakeWord() }
+        voice.earlyAccept = { text -> FastCommandRouter.earlyAcceptDelayMs(text) }
+        voice.onMicProblem = { problem, _ -> onMicProblem(problem) }
         google = CommandListener(this)
         createChannel()
         try {
@@ -86,17 +116,17 @@ class JarvisService : Service() {
         when (intent?.action) {
             ACTION_STOP_TASK -> {
                 cancelled = true
-                voice.cancelCommand(); google.cancel()
-                if (state == State.LISTENING_COMMAND) {
-                    // Cancel listening: nothing will call onHeard now, so go back to waiting.
-                    stopSpeaking()
-                    state = State.IDLE
-                    island { it.hide() }
-                    update("Cancelled")
+                taskId++
+                activeSession?.cancel()
+                activeSession = null
+                voice.cancelCommand()
+                google.cancel()
+                stopSpeaking()
+                state = State.IDLE
+                island { it.hide() }
+                update("Cancelled")
+                if (settings.switchedOn) {
                     resumeListening()
-                } else {
-                    stopSpeaking()
-                    if (state == State.WORKING) update("Stopping…")
                 }
             }
             ACTION_SHUTDOWN -> {
@@ -110,6 +140,21 @@ class JarvisService : Service() {
         return START_STICKY
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Android is short of memory: give back the voice model (about 200 MB). It reloads on the next reply.
+        if (level >= TRIM_RUNNING_CRITICAL) Kokoro.unload()
+    }
+
+    private fun onMicProblem(problem: String) {
+        if (destroyed || state != State.IDLE) return
+        when (problem) {
+            "ok" -> update("Say \"Hey Jarvis\"")
+            "blocked" -> update("Android is blocking the microphone. Open Jarvis once, then try again.")
+            else -> update("Microphone busy. Reconnecting…")
+        }
+    }
+
     override fun onDestroy() {
         destroyed = true
         running = false
@@ -117,6 +162,9 @@ class JarvisService : Service() {
         status = "Offline"
         statusListener?.invoke(status)
         cancelled = true
+        taskId++
+        activeSession?.cancel()
+        activeSession = null
         island { it.hide() }
         if (!startFailed) {
             voice.release()
@@ -138,6 +186,7 @@ class JarvisService : Service() {
     private var speechId = 0
     /** Increases with every task; a result from a task that was interrupted is never spoken. */
     @Volatile private var taskId = 0
+    @Volatile private var activeSession: ChatSession? = null
     /** Recent requests and replies, so follow-ups like "and tell her I'll be late" make sense. */
     private val conversation = ArrayDeque<Pair<String, String>>()
     private var lastExchangeAt = 0L
@@ -186,12 +235,18 @@ class JarvisService : Service() {
 
     private fun onWakeWord() {
         if (destroyed) return
+        if (state != State.LISTENING_COMMAND) {
+            trace.begin("wake")
+            warmLocalModel()
+        }
         when (state) {
             State.LISTENING_COMMAND -> return
             State.WORKING -> {
                 // "Hey Jarvis" during a task: stop it and take the new command.
                 cancelled = true
                 taskId++
+                activeSession?.cancel()
+                activeSession = null
                 interruptSpeech()
                 listen(promptIfQuiet = true)
             }
@@ -206,7 +261,12 @@ class JarvisService : Service() {
     private fun onBargeIn(stop: Boolean) {
         if (destroyed) return
         interruptSpeech()
-        if (state == State.WORKING) { cancelled = true; taskId++ }
+        if (state == State.WORKING) {
+            cancelled = true
+            taskId++
+            activeSession?.cancel()
+            activeSession = null
+        }
         if (stop) {
             state = State.IDLE
             voice.cancelCommand()
@@ -226,8 +286,8 @@ class JarvisService : Service() {
         state = State.LISTENING_COMMAND
         update("Listening…")
         speaker.warmUp() // load the voice now, so the reply has no delay
-        island { it.listening(if (voice.canTranscribe) ({ voice.partialText }) else null, { voice.level }) }
-        if (voice.canTranscribe) {
+        island { it.listening(if (useOfflineAsr) ({ voice.partialText }) else null, { voice.level }) }
+        if (useOfflineAsr) {
             voice.start()
             // Keeps transcribing from the wake word on, so "Hey Jarvis, call mum" works in one breath.
             voice.listenForCommand(if (followUp) FOLLOW_UP_MS else 7000) { text -> onHeard(text, followUp, interrupted) }
@@ -241,9 +301,14 @@ class JarvisService : Service() {
         } else {
             voice.stop() // Google's recognizer needs the microphone
             val heard: (String?) -> Unit = { text -> onHeard(text, followUp) }
-            if (followUp) google.listen(heard) else say("Yes?") { google.listen(heard) }
+            if (followUp) google.listen(googleLanguage(), heard) else say("Yes?") { google.listen(googleLanguage(), heard) }
         }
     }
+
+    /** Offline English recognition, unless the user chose Hindi/Hinglish (then Google's recognizer is used). */
+    private val useOfflineAsr get() = voice.canTranscribe && settings.speechLanguage == "en"
+
+    private fun googleLanguage(): String? = if (settings.speechLanguage == "hi") "hi-IN" else null
 
     private fun onHeard(text: String?, followUp: Boolean = false, interrupted: Boolean = false) {
         if (state != State.LISTENING_COMMAND) return
@@ -273,45 +338,225 @@ class JarvisService : Service() {
         }
     }
 
+
+    /** Route clear phone actions to the phone agent; ordinary conversation goes straight to the LLM. */
+    private fun isPhoneAction(task: String): Boolean {
+        val t = task.lowercase()
+        val patterns = listOf(
+            Regex("""\b(open|launch|close|exit|switch to|go to|tap|click|press|scroll|swipe|type|enter|send|text|call|dial|hang up|answer|reject|play|pause|skip|next|previous|turn on|turn off|enable|disable|increase|decrease|raise|lower|volume|brightness|screenshot|lock|unlock|navigate|share|copy|paste|set alarm|set a reminder|set reminder|set timer|change wallpaper)\b"""),
+            Regex("""(kholo|khol do|band karo|bhejo|bhej do|call karo|phone karo|lagao|laga do|bajao|chalao|chala do|on karo|off karo|badha do|kam karo|ghata do|screenshot lo|photo lo|record karo|mute karo|unmute karo|silent kar do|alarm laga|reminder laga)""")
+        )
+        return patterns.any { it.containsMatchIn(t) }
+    }
+
+    /** Lightweight conversational path: no accessibility, screen observation or phone tools. */
+    private fun runChatTask(
+        task: String,
+        earlier: List<Pair<String, String>>,
+        id: Int
+    ): AgentResult {
+        // Which models, in which order, depends on the mode (auto / online / offline) and on what is reachable right now.
+        val models = aiRouter.plan(task, TaskKind.CHAT)
+        if (models.isEmpty()) {
+            return AgentResult(
+                false,
+                if (settings.modelsInOrder().isEmpty()) "No AI model is set up yet."
+                else "None of your models can be used in ${settings.aiMode.name.lowercase()} mode.",
+            )
+        }
+
+        var lastError = ""
+        for ((index, profile) in models.withIndex()) {
+            if (cancelled || id != taskId) {
+                return AgentResult(false, "Cancelled.")
+            }
+
+            val config = profile.toConfig()
+            if (config.preset.needsKey && config.apiKey.isBlank()) {
+                lastError = "${profile.name} has no API key"
+                continue
+            }
+
+            // For the on-phone model this checks that the server answers and starts it through Termux if it does not.
+            val usable = aiRouter.ready(profile, hasAlternative = index < models.lastIndex) { text ->
+                main.post { if (id == taskId && !destroyed) update(text) }
+            }
+            if (!usable) {
+                lastError = if (Endpoints.isLoopback(profile.baseUrl)) aiRouter.localFailureHint() else "${profile.name} isn't reachable"
+                continue
+            }
+
+            try {
+                main.post {
+                    if (id == taskId && !destroyed) update("Thinking with ${profile.name}…")
+                }
+
+                // Notes the user asked Jarvis to keep go in the message, not the system prompt, so the system prompt stays cacheable.
+                val memory = aiRouter.memoryContext(task, profile)
+                val message = if (memory.isEmpty()) task else "$memory\n\n$task"
+
+                val session = Llm.newSession(config, CHAT_PROMPT, emptyList())
+
+                session.seedHistory(earlier)
+                activeSession = session
+                if (cancelled || id != taskId) session.cancel()
+                val turn = try {
+                    session.send(message, emptyList())
+                } finally {
+                    if (activeSession === session) activeSession = null
+                }
+                if (turn.toolCalls.isNotEmpty()) {
+                    lastError = "${profile.name} unexpectedly returned a tool call"
+                    continue
+                }
+
+                val reply = turn.text.trim()
+                if (reply.isNotBlank()) {
+                    aiRouter.report(profile, true)
+                    return AgentResult(true, reply)
+                }
+
+                lastError = turn.stopNote ?: "${profile.name} returned an empty reply"
+            } catch (e: Throwable) {
+                if (cancelled || id != taskId) {
+                    return AgentResult(false, "Okay, I stopped.")
+                }
+                aiRouter.report(profile, false)
+                Log.e(TAG, "chat failed with ${profile.name}", e)
+                lastError = e.message ?: "Connection failed"
+            }
+        }
+
+        return AgentResult(
+            false, "I couldn't reach any of your AI models. $lastError"
+        )
+    }
+
+    /**
+     * Loads the on-phone model into memory while the user is still speaking, so its answer starts sooner. Only the short
+     * chat prompt is sent: the phone-control prompt is about a thousand tokens, and a server that is busy with it would
+     * make a following chat question wait. Never starts the server.
+     */
+    private fun warmLocalModel() {
+        if (settings.aiMode == AiMode.ONLINE) return
+        val profile = settings.modelsInOrder().firstOrNull { Endpoints.isLoopback(it.baseUrl) } ?: return
+        LocalWarmup.warmAsync(profile.baseUrl, profile.model, CHAT_PROMPT, emptyList())
+    }
+
     private fun runTask(task: String) {
         if (destroyed || state == State.WORKING) return
+        trace.mark("heard")
         state = State.WORKING
         cancelled = false
         val id = ++taskId
+        activeSession = null
         voice.cancelCommand()
-        // Keep listening for "Hey Jarvis" while working, so the user can stop or redirect the task.
-        if (voice.hasWakeWord && settings.wakeWordEnabled) voice.start()
+        // Do not restart wake-word detection during model processing.
+        // This prevents accidental wake-word detections from cancelling a slow Qwen request.
         lastTask = task
         island { it.working(task) }
         update("Working on: $task")
+
+        // Instant paths first: what the user is teaching Jarvis, then simple phone commands. No language model involved,
+        // so they work offline and finish in milliseconds.
+        val memoryIntent = MemoryIntentParser.parse(task)
+        val fast = if (memoryIntent == null) FastCommandRouter.parse(task) else null
+        if (memoryIntent != null || fast != null) {
+            trace.mark("routed")
+            worker.execute {
+                val outcome = try {
+                    if (memoryIntent != null) {
+                        fastActions.handleMemory(memoryIntent)
+                    } else {
+                        if (needsUnlock(fast!!)) waitForUnlock()
+                        fastActions.execute(fast)
+                    }
+                } catch (e: Throwable) {
+                    Log.e(TAG, "instant action failed", e)
+                    FastActionExecutor.Result(true, false, "Something went wrong.")
+                }
+                trace.mark("acted")
+                if (!outcome.handled) {
+                    // Not something Jarvis can do directly (an app it cannot find, say): the model gets it, as it always did.
+                    if (fast is FastCommand.OpenApp) failedApp = fast.query to SystemClock.elapsedRealtime()
+                    main.post { if (id == taskId && !destroyed) runModelTask(task, id) }
+                    return@execute
+                }
+                val message = learnFromRetry(outcome)
+                val keep = memoryIntent == null && fast !is FastCommand.TypeText && fast !is FastCommand.Dial
+                main.post { deliver(task, id, AgentResult(outcome.success, message), keepInHistory = keep, via = "instant") }
+            }
+            return
+        }
+        runModelTask(task, id)
+    }
+
+    private fun needsUnlock(c: FastCommand) = when (c) {
+        is FastCommand.Volume, is FastCommand.Flashlight, is FastCommand.Media, is FastCommand.Ask,
+        is FastCommand.SetMode, is FastCommand.SetLanguage, is FastCommand.SetAlarm, is FastCommand.SetTimer,
+        FastCommand.Screenshot, FastCommand.LockScreen,
+        -> false
+        else -> true
+    }
+
+    /**
+     * If the user repeats a failed "open <name>" with the correct app name, the first name was probably a mis-hearing.
+     * It is saved so it works next time, but only when the two names plausibly sound alike (so "open maps" after a
+     * failed "open whtsup" never teaches that whtsup means Maps).
+     */
+    private fun learnFromRetry(outcome: FastActionExecutor.Result): String {
+        val failed = failedApp
+        val entry = outcome.app
+        if (failed == null || entry == null || !outcome.success) return outcome.message
+        failedApp = null
+        if (SystemClock.elapsedRealtime() - failed.second > RETRY_LEARN_MS) return outcome.message
+        if (outcome.how !in setOf("exact", "builtin", "learned", "prefix")) return outcome.message
+        if (!AppMatcher.similar(failed.first, entry.label)) return outcome.message
+        fastActions.learnAlias(failed.first, entry)
+        return "${outcome.message} I'll remember that \"${failed.first}\" means ${entry.label}."
+    }
+
+    /** The model path: acknowledge, then let the phone agent or the chat model answer on the worker thread. */
+    private fun runModelTask(task: String, id: Int) {
         say("On it.")
         val earlier = recentConversation()
+        val phoneAction = isPhoneAction(task)
+
         worker.execute {
             val result = try {
-                waitForUnlock()
-                PhoneAgent(settings, hostFor(id)).run(task, earlier)
+                if (phoneAction) {
+                    waitForUnlock()
+                    PhoneAgent(settings, hostFor(id), aiRouter).run(task, earlier)
+                } else {
+                    runChatTask(task, earlier, id)
+                }
             } catch (e: Throwable) {
                 Log.e(TAG, "task failed", e)
-                com.jarvis.assistant.agent.AgentResult(false, "Something went wrong: ${e.message}")
+                AgentResult(false, "Something went wrong: ${e.message}")
             }
-            main.post {
-                if (id != taskId || destroyed) return@post // interrupted by a newer command
-                lastResult = result.summary
-                remember(task, result.summary)
-                island { it.finish(result.success, result.summary) }
-                update(result.summary)
-                say(result.summary, interruptible = true) {
-                    state = State.IDLE
-                    afterReply()
-                }
-            }
+            trace.mark("model")
+            main.post { deliver(task, id, result, keepInHistory = true, via = "model") }
         }
+    }
+
+    /** Shows and speaks the result of task [id], unless the user interrupted it meanwhile. */
+    private fun deliver(task: String, id: Int, result: AgentResult, keepInHistory: Boolean, via: String) {
+        if (id != taskId || destroyed) return
+        lastResult = result.summary
+        if (keepInHistory) remember(task, result.summary)
+        island { it.finish(result.success, result.summary) }
+        update(result.summary)
+        say(result.summary, interruptible = true) {
+            state = State.IDLE
+            afterReply()
+        }
+        trace.finish(via)
     }
 
     /** After a reply: listen for a follow-up without the wake word, or go back to waiting. */
     private fun afterReply() {
         if (destroyed) return
-        if (settings.followUp && voice.canTranscribe) listen(promptIfQuiet = false, followUp = true)
+        if (settings.followUp && useOfflineAsr) listen(promptIfQuiet = false, followUp = true)
         else resumeListening()
     }
 
@@ -329,7 +574,7 @@ class JarvisService : Service() {
 
     /** Goes back to waiting for "Hey Jarvis" (loading any models downloaded since). */
     private fun resumeListening() {
-        if (destroyed || state != State.IDLE) return
+        if (destroyed || !settings.switchedOn || state != State.IDLE) return
         voice.echoCancellation = settings.interruptByTalking
         voice.load { error ->
             if (destroyed || state != State.IDLE) return@load
@@ -366,23 +611,41 @@ class JarvisService : Service() {
     /** Bridges the agent (worker thread) to the voice UI (main thread) for task [id]. */
     private fun hostFor(id: Int) = object : AgentHost {
         override val isCancelled get() = cancelled || id != taskId
-        override fun status(text: String) { main.post { update(text) } }
+        override fun attachSession(session: ChatSession) {
+            activeSession = session
+            if (cancelled || id != taskId) session.cancel()
+        }
+        override fun status(text: String) {
+            main.post {
+                if (!destroyed && !cancelled && id == taskId) update(text)
+            }
+        }
         override fun ask(question: String): String? {
             val latch = CountDownLatch(1)
             var answer: String? = null
             main.post {
+                if (destroyed || cancelled || id != taskId) {
+                    latch.countDown()
+                    return@post
+                }
                 update("Asking: $question")
                 say(question) {
-                    island { it.listening(if (voice.canTranscribe) ({ voice.partialText }) else null, { voice.level }) }
-                    val got: (String?) -> Unit = { text -> answer = text; latch.countDown(); island { it.working() } }
-                    if (voice.canTranscribe) voice.listenForCommand(10_000) { got(it) }
-                    else { voice.stop(); google.listen { got(it); if (voice.hasWakeWord) voice.start() } }
+                    island { it.listening(if (useOfflineAsr) ({ voice.partialText }) else null, { voice.level }) }
+                    val got: (String?) -> Unit = { text ->
+                        if (!destroyed && !cancelled && id == taskId) {
+                            answer = text
+                            island { it.working() }
+                        }
+                        latch.countDown()
+                    }
+                    if (useOfflineAsr) voice.listenForCommand(10_000) { got(it) }
+                    else { voice.stop(); google.listen(googleLanguage()) { got(it); if (voice.hasWakeWord) voice.start() } }
                 }
             }
             // Give up after a minute, or straight away if the task is stopped.
             val deadline = System.currentTimeMillis() + 60_000
             while (!latch.await(200, TimeUnit.MILLISECONDS)) {
-                if (cancelled || System.currentTimeMillis() > deadline) break
+                if (destroyed || cancelled || id != taskId || System.currentTimeMillis() > deadline) break
             }
             return answer
         }
@@ -445,6 +708,14 @@ class JarvisService : Service() {
         const val EXTRA_TASK = "task"
         /** How long to wait for a follow-up after a reply. */
         private const val FOLLOW_UP_MS = 6000L
+        /** A repeated command within this time after a failed one can teach Jarvis the first (mis-heard) name. */
+        private const val RETRY_LEARN_MS = 20_000L
+        private const val TRIM_RUNNING_CRITICAL = 15 // ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+
+        private const val CHAT_PROMPT = "You are Jarvis, a helpful Android phone assistant. " +
+            "Reply naturally and concisely in the user's language, including Hindi or Hinglish. " +
+            "You are in conversation mode and cannot operate the phone in this mode. " +
+            "Never claim you performed a phone action."
 
         enum class Phase { OFF, IDLE, LISTENING, WORKING }
 

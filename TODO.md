@@ -14,12 +14,14 @@ how long it takes from "Jarvis has something to say" to "sound comes out of the 
 
 ## 2. Kokoro (on-device) — biggest wins
 
-- [ ] **Don't cold-load the model mid-conversation.** `Kokoro.IDLE_UNLOAD_MS` is 2 minutes, so a reply after
+- [x] **Don't cold-load the model mid-conversation.** (Done: 10 minutes, and released on memory pressure.)
+- [ ] (original note)  `Kokoro.IDLE_UNLOAD_MS` is 2 minutes, so a reply after
       a short pause pays the full model load. Options: make the timeout a setting, keep it loaded while the
       service is in the foreground, or only unload on `onTrimMemory()` instead of a timer.
 - [ ] **Warm up earlier.** `Speaker.warmUp()` is only called in `JarvisService.listen()`. Also call it on the
       wake word itself and when a task starts, so loading overlaps with the user talking / the agent working.
-- [ ] **Cache more stock phrases.** Only `"Yes?"`, `"On it."` and the unlock prompt are pre-rendered
+- [x] **Cache more stock phrases.** (Done: nine short replies added.)
+- [ ] (original note)  Only `"Yes?"`, `"On it."` and the unlock prompt are pre-rendered
       (`Kokoro.STOCK_PHRASES`). Add the other fixed lines Jarvis says, e.g. `"Sorry, I didn't catch that."`,
       `"Okay."`, `"Done."`.
 - [ ] **Shorter first chunk.** Generation is already streamed sentence by sentence (`maxNumSentences = 1`), but a

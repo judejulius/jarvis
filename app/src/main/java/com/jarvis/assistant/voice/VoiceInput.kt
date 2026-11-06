@@ -11,6 +11,7 @@ import android.media.audiofx.AcousticEchoCanceler
 import kotlin.math.tanh
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.k2fsa.sherpa.onnx.EndpointConfig
 import com.k2fsa.sherpa.onnx.EndpointRule
@@ -61,6 +62,18 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
     /** Set by [release]; a model load still in progress must not bring the microphone back. */
     @Volatile private var released = false
     private var thread: Thread? = null
+
+    /** Bumped by every start() and stop(), so a microphone thread that is still winding down can never run beside a new one. */
+    @Volatile private var generation = 0
+
+    /**
+     * Given the words heard so far, returns how long (ms) the user must stay quiet before the command counts as finished,
+     * or null to wait for the normal end-of-speech timeout. Lets "open YouTube" run without waiting a full second.
+     */
+    @Volatile var earlyAccept: ((String) -> Long?)? = null
+
+    /** Called on the main thread when the microphone stopped working and is being reopened (problem is "failed" or "blocked"), or "ok" once it recovered. */
+    @Volatile var onMicProblem: ((problem: String, attempts: Int) -> Unit)? = null
 
     /** While true, microphone audio is ignored (Jarvis is talking and mustn't hear itself). */
     @Volatile var muted = false
@@ -218,12 +231,14 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
     fun start() {
         if (released || running || (spotter == null && recognizer == null)) return
         running = true
-        thread = Thread({ loop() }, "jarvis-mic").apply { start() }
+        val gen = ++generation
+        thread = Thread({ loop(gen) }, "jarvis-mic").apply { start() }
     }
 
     /** Closes the microphone (e.g. so Google's recognizer can use it). */
     fun stop() {
         running = false
+        generation++
         thread?.let { if (it !== Thread.currentThread()) it.join(1500) }
         thread = null
     }
@@ -265,11 +280,52 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         var lastChangeAt = 0L
     }
 
-    private fun loop() {
+    private enum class MicExit { STOPPED, NO_PERMISSION, FAILED, BLOCKED }
+
+    @Volatile private var micProblemReported = false
+
+    private fun alive(gen: Int) = running && !released && generation == gen
+
+    private fun isDigitalSilence(pcm: ShortArray, n: Int): Boolean {
+        for (i in 0 until n) if (pcm[i].toInt() != 0) return false
+        return true
+    }
+
+    /**
+     * Keeps the microphone open. If Android takes it away (another app, a call, a dead audio object) or silences it, the
+     * microphone is reopened with a growing pause, instead of leaving "Hey Jarvis" deaf until the service restarts.
+     */
+    private fun loop(gen: Int) {
+        var failures = 0
+        var blocked = 0
+        while (alive(gen)) {
+            val startedAt = SystemClock.elapsedRealtime()
+            val exit = runMic(gen, detectSilence = blocked <= MAX_BLOCKED_RESTARTS)
+            if (!alive(gen)) return
+            when (exit) {
+                MicExit.NO_PERMISSION -> { running = false; return }
+                MicExit.STOPPED -> return
+                MicExit.FAILED, MicExit.BLOCKED -> {
+                    if (SystemClock.elapsedRealtime() - startedAt > 30_000) failures = 0 // it was healthy for a while
+                    failures++
+                    if (exit == MicExit.BLOCKED) blocked++
+                    Log.w(TAG, "microphone restart: $exit (attempt $failures)")
+                    if (failures >= 2 || exit == MicExit.BLOCKED) {
+                        micProblemReported = true
+                        main.post { onMicProblem?.invoke(exit.name.lowercase(), failures) }
+                    }
+                    var waited = 0L
+                    val pause = (500L * failures).coerceAtMost(5000L)
+                    while (waited < pause && alive(gen)) { Thread.sleep(100); waited += 100 }
+                }
+            }
+        }
+    }
+
+    private fun runMic(gen: Int, detectSilence: Boolean): MicExit {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "no microphone permission")
-            running = false
-            return
+            return MicExit.NO_PERMISSION
         }
         var record: AudioRecord? = null
         var wakeStream: OnlineStream? = null
@@ -286,11 +342,30 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
             if (echoCancellation) echoCanceller = runCatching {
                 if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(record.audioSessionId)?.apply { enabled = true } else null
             }.getOrNull()
+            if (record.state != AudioRecord.STATE_INITIALIZED) return MicExit.FAILED
             record.startRecording()
             val pcm = ShortArray(SAMPLE_RATE / 10) // 100 ms
-            while (running) {
+            var errorReads = 0
+            var zeroReads = 0
+            var reads = 0
+            while (alive(gen)) {
                 val n = record.read(pcm, 0, pcm.size)
-                if (n <= 0) { if (n < 0) Thread.sleep(20); continue }
+                if (n < 0) {
+                    if (n == AudioRecord.ERROR_DEAD_OBJECT || ++errorReads >= MAX_READ_ERRORS) return MicExit.FAILED
+                    Thread.sleep(20)
+                    continue
+                }
+                if (n == 0) continue
+                errorReads = 0
+                if (++reads % 10 == 0 && record.recordingState != AudioRecord.RECORDSTATE_RECORDING) return MicExit.FAILED
+                if (reads == 10 && micProblemReported) {
+                    micProblemReported = false
+                    main.post { onMicProblem?.invoke("ok", 0) } // a second of real audio: the microphone is back
+                }
+                if (detectSilence) {
+                    // Android hands a blocked app endless exact zeros instead of an error.
+                    if (isDigitalSilence(pcm, n)) { if (++zeroReads >= SILENT_READS) return MicExit.BLOCKED } else zeroReads = 0
+                }
                 if (muted) { level = 0f; continue }
                 val samples = FloatArray(n) { pcm[it] / 32768f }
                 val rawLevel = rms(samples)
@@ -346,6 +421,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
             Log.e(TAG, "microphone loop failed", e)
             val session = synchronized(lock) { command.also { command = null } }
             session?.let { s -> main.post { s.onResult(null) } }
+            return MicExit.FAILED
         } finally {
             runCatching { record?.stop() }
             record?.release()
@@ -354,6 +430,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
             echoStream?.release(); echoStream = null; echoFor = null
             stopStream?.release(); stopStream = null
         }
+        return MicExit.STOPPED
     }
 
     /**
@@ -451,6 +528,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
             text.isEmpty() -> ms(session.samples) >= session.silenceTimeoutMs        // nobody spoke
             asr.isEndpoint(session.stream) -> true                                   // model heard the end
             quietFor >= END_OF_SPEECH_MS -> true                                     // words stopped changing
+            earlyAccept?.invoke(text)?.let { quietFor >= it } == true -> true        // a short, complete command
             ms(session.samples) >= MAX_COMMAND_MS -> true
             else -> false
         }
@@ -465,6 +543,9 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         private const val TAG = "VoiceInput"
         const val SAMPLE_RATE = 16000
         private const val END_OF_SPEECH_MS = 1300L
+        private const val MAX_READ_ERRORS = 10
+        private const val SILENT_READS = 50          // 5 s of exact zeros = the microphone is blocked
+        private const val MAX_BLOCKED_RESTARTS = 2   // after that, assume the phone really outputs digital silence
         private const val TARGET_SPEECH_RMS = 0.06f
         private const val MAX_GAIN = 8f
         private const val MAX_NOISE_AFTER_GAIN = 0.012f

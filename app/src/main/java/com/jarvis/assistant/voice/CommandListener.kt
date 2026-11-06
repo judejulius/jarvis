@@ -11,7 +11,13 @@ import android.speech.SpeechRecognizer
 class CommandListener(private val context: Context) {
     private var recognizer: SpeechRecognizer? = null
 
-    fun listen(onResult: (String?) -> Unit) {
+    fun listen(onResult: (String?) -> Unit) = listen(null, onResult)
+
+    /**
+     * [language] is a BCP-47 tag such as "hi-IN". Google's Hindi recognizer also understands Hinglish (English words
+     * inside Hindi sentences) and may answer in Devanagari or Roman letters; the command router accepts both.
+     */
+    fun listen(language: String?, onResult: (String?) -> Unit) {
         cancel()
         if (!SpeechRecognizer.isRecognitionAvailable(context)) { onResult(null); return }
         val r = SpeechRecognizer.createSpeechRecognizer(context)
@@ -39,7 +45,12 @@ class CommandListener(private val context: Context) {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+        if (language != null) {
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language)
+        }
         r.startListening(intent)
     }
 

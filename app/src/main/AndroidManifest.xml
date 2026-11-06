@@ -10,9 +10,16 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Needed to show the "let Jarvis run in the background" prompt -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Online / offline / automatic AI routing needs to know whether the internet works -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- "Set an alarm for 7" / "set a timer" without opening the clock app -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Starts the local model server (llama-server) inside Termux. Needs Termux's allow-external-apps setting; see termux/install-termux.sh -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <!-- Lets open_app see every launchable app on Android 11+ -->
     <queries>
+        <package android:name="com.termux" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -46,6 +53,10 @@
 
         <activity
             android:name=".ui.OnboardingActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".memory.MemoryActivity"
             android:exported="false" />
 
         <activity

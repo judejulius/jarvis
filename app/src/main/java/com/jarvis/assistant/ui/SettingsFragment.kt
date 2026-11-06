@@ -83,6 +83,10 @@ class SettingsFragment : Fragment() {
         ui.rerunSetup.setOnClickListener {
             startActivity(Intent(requireContext(), OnboardingActivity::class.java))
         }
+        // Assistant behaviour: AI mode, voice language, safety and memory switches, on-phone model status.
+        runCatching {
+            refreshers += AssistantSection.attach(requireContext(), settings, ui.scroll.getChildAt(0) as ViewGroup)
+        }.onFailure { android.util.Log.e("Settings", "could not add the Assistant section", it) }
         return ui.root
     }
 

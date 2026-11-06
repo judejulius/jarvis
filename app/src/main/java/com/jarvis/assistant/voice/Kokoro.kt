@@ -26,9 +26,15 @@ import java.util.concurrent.TimeUnit
 object Kokoro {
     private const val TAG = "Kokoro"
     const val SAMPLE_RATE = 24000
-    private const val IDLE_UNLOAD_MS = 120_000L
+    // Kept for 10 minutes so a conversation never pays the reload; freed at once if Android reports memory pressure.
+    private const val IDLE_UNLOAD_MS = 600_000L
     const val MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2"
-    val STOCK_PHRASES = listOf("Yes?", "On it.", "Please unlock your phone and I'll get started.")
+    val STOCK_PHRASES = listOf(
+        "Yes?", "On it.", "Please unlock your phone and I'll get started.",
+        // short replies to the most common instant commands, ready before they are needed
+        "Okay.", "Done.", "Going back.", "Home.", "Flashlight on.", "Flashlight off.", "Paused.", "Playing.",
+        "Sorry, I didn't catch that.",
+    )
 
     fun modelDir(context: Context) = File(context.filesDir, "kokoro")
     fun isInstalled(context: Context) =
@@ -61,16 +67,26 @@ object Kokoro {
      */
     fun speak(context: Context, text: String, speaker: Int, speed: Float, onDone: () -> Unit) {
         val app = context.applicationContext
+        val queuedAt = SystemClock.elapsedRealtime()
         val ticket = AudioOut.interrupt()
         worker.execute {
+            val startedAt = SystemClock.elapsedRealtime()
+            var generationMs = 0L
+            var cachedAudio = false
+            var playbackStarted = false
             try {
                 val player = AudioOut.Playback(ticket)
                 val cached = cacheFile(app, text, speaker, speed).takeIf { it.exists() }?.let { readPcm(it) }
                 if (cached != null) {
+                    cachedAudio = true
+                    playbackStarted = true
                     player.write(cached)
                 } else {
                     val engine = engine(app) ?: throw IllegalStateException("Kokoro unavailable")
+                    val generationStartedAt = SystemClock.elapsedRealtime()
                     val audio = engine.generateWithCallback(text, speaker, speed, ChunkCallback(player))
+                    generationMs = SystemClock.elapsedRealtime() - generationStartedAt
+                    playbackStarted = true
                     if (text in STOCK_PHRASES && AudioOut.isCurrent(ticket)) writePcm(cacheFile(app, text, speaker, speed), audio.samples)
                 }
                 player.finish()
@@ -78,6 +94,9 @@ object Kokoro {
                 Log.e(TAG, "speak failed", e)
                 lastError = "Speaking failed: $e"
             }
+            val completedAt = SystemClock.elapsedRealtime()
+            Log.i(TAG, "timing queue=${startedAt - queuedAt}ms generation=${generationMs}ms " +
+                "total=${completedAt - queuedAt}ms cached=$cachedAudio started=$playbackStarted")
             scheduleUnload()
             if (AudioOut.isCurrent(ticket)) main.post(onDone)
         }
@@ -138,6 +157,15 @@ object Kokoro {
             lastError = "Loading failed: $e"
             failed = true
             null
+        }
+    }
+
+    /** Frees the voice model now (called when Android is short of memory). It reloads on the next reply. */
+    fun unload() {
+        worker.execute {
+            unloadTask?.cancel(false)
+            tts?.release(); tts = null
+            Log.i(TAG, "unloaded: low memory")
         }
     }
 

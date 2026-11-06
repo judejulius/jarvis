@@ -2,6 +2,7 @@ package com.jarvis.assistant.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -9,6 +10,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -47,7 +49,13 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     // ---- Observation ----
 
-    fun readScreen(): ScreenSnapshot = ScreenReader.capture(this).also { snapshot = it }
+    fun readScreen(maxElements: Int = 300): ScreenSnapshot = ScreenReader.capture(this, maxElements).also { snapshot = it }
+
+    /** The text or description of element [id] on the last screen read ("" if unknown). */
+    fun labelOf(id: Int): String {
+        val n = snapshot?.elements?.get(id) ?: return ""
+        return (n.text ?: n.contentDescription)?.toString().orEmpty()
+    }
 
     private fun element(id: Int): AccessibilityNodeInfo =
         snapshot?.elements?.get(id)?.also { it.refresh() }
@@ -154,6 +162,8 @@ class JarvisAccessibilityService : AccessibilityService() {
             "recents" -> GLOBAL_ACTION_RECENTS
             "notifications" -> GLOBAL_ACTION_NOTIFICATIONS
             "quick_settings" -> GLOBAL_ACTION_QUICK_SETTINGS
+            "screenshot" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) GLOBAL_ACTION_TAKE_SCREENSHOT else return "Screenshots by voice need Android 9 or newer."
+            "lock" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) GLOBAL_ACTION_LOCK_SCREEN else return "Locking by voice needs Android 9 or newer."
             else -> return "Unknown key '$key'."
         }
         return if (performGlobalAction(action)) "Pressed $key." else "Could not press $key."
@@ -177,6 +187,47 @@ class JarvisAccessibilityService : AccessibilityService() {
         // Accessibility services are allowed to start activities from the background.
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
         return "Opened ${match.first} (${match.second})."
+    }
+
+    /** Starts [intent] from the background (accessibility services are allowed to). False if nothing can handle it. */
+    fun launch(intent: Intent): Boolean = try {
+        startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
+    } catch (_: RuntimeException) {
+        false
+    }
+
+    /** Launches the app with [packageName]. True if Android accepted the launch (see [waitForForeground] to confirm). */
+    fun openPackage(packageName: String): Boolean {
+        val intent = packageManager.getLaunchIntentForPackage(packageName) ?: return false
+        return launch(intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
+    }
+
+    /** Waits until [packageName] is the app in front, up to [timeoutMs]. Must not be called on the main thread. */
+    fun waitForForeground(packageName: String, timeoutMs: Long): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (rootInActiveWindow?.packageName?.toString() == packageName) return true
+            Thread.sleep(150)
+        }
+        return false
+    }
+
+    /** Taps the visible element whose text or description is [text]. */
+    fun tapByText(text: String): String {
+        val root = rootInActiveWindow ?: return "I can't read the screen right now."
+        val matches = root.findAccessibilityNodeInfosByText(text).filter { it.isVisibleToUser }
+        val exact = matches.filter { (it.text ?: it.contentDescription)?.toString().equals(text, ignoreCase = true) }
+        val node = (exact.ifEmpty { matches }).firstOrNull() ?: return "I can't see anything labelled $text on this screen."
+        var target: AccessibilityNodeInfo? = node
+        while (target != null && !target.isClickable) target = target.parent
+        if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return "Tapped $text."
+        val b = Rect().also { node.getBoundsInScreen(it) }
+        return if (tapAt(b.centerX().toFloat(), b.centerY().toFloat())) "Tapped $text." else "Tapping $text failed."
     }
 
     private fun path(x: Float, y: Float) = Path().apply { moveTo(x, y); lineTo(x + 1, y + 1) }

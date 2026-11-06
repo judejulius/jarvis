@@ -131,6 +131,15 @@ The walkthrough guides you through each step and ticks it off when it's done. Yo
 
 Small local models struggle with long, multi-step phone tasks. If results are unreliable, try a bigger model, or turn on screenshots with a vision model.
 
+## Instant commands, memory and AI modes
+
+Simple commands run without the AI model, so they are fast and work offline: "open YouTube", "go back", "scroll down", "volume up", "turn on the flashlight", "pause the music", "set a timer for 5 minutes", "what time is it", "search for pizza near me". Hinglish ("YouTube kholo", "awaaz kam karo") and Devanagari Hindi work too. Anything else goes to the AI as before.
+
+- **AI mode** (Settings > Assistant): *Auto* uses the on-phone model for short simple questions and cloud models for hard, current-events or Hindi ones; *Online* prefers the cloud; *Offline* never leaves the phone. Say "offline mode" / "online mode" / "automatic mode" to switch.
+- **Memory**: "when I say yt, open YouTube", "remember that I prefer short answers", "forget my wifi name", "what do you remember". Manage everything in Settings > Assistant > Memories. It stays on the phone.
+- **On-phone model**: see [docs/INSTALL.md](docs/INSTALL.md) for the one-time Termux setup that lets Jarvis start and restart `llama-server`.
+- Design notes and honest limits: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+
 ## How it works
 
 ```mermaid
