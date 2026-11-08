@@ -36,6 +36,8 @@
         </intent>
     </queries>
 
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
     <application
         android:name=".JarvisApp"
         android:allowBackup="false"
