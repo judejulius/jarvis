@@ -99,6 +99,59 @@
                 android:textColor="@color/text_dim"
                 android:textSize="12sp" />
 
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/rememberTasksSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Remember what tasks I have done"
+                android:textColor="@color/text"
+                tools:ignore="HardcodedText" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/embeddedSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Use the on-device model built into Jarvis"
+                android:textColor="@color/text"
+                tools:ignore="HardcodedText" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/mobileDownloadSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Allow the model download on mobile data"
+                android:textColor="@color/text"
+                tools:ignore="HardcodedText" />
+
+            <TextView
+                android:id="@+id/runtimeStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_dim"
+                android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/runtimeButton"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:text="Download on-device model"
+                app:cornerRadius="12dp"
+                tools:ignore="HardcodedText" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/permissionsButton"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
+                android:text="Allow contacts and calling"
+                app:cornerRadius="12dp"
+                tools:ignore="HardcodedText" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/memoriesButton"
                 style="@style/Widget.Material3.Button.TonalButton"

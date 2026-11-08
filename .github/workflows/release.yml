@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
 
+env:
+  LLAMA_CPP_REF: b12099
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -19,6 +22,20 @@ jobs:
           java-version: 21
 
       - uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache on-device model runtime
+        id: llama-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libllama_server.so
+          key: llama-server-${{ env.LLAMA_CPP_REF }}-${{ hashFiles('scripts/build-llama-android.sh') }}
+
+      # llama-server for arm64 is built from source once (then cached). If this step fails, the APK still builds; the app
+      # then works without the on-device runtime (Termux or cloud models).
+      - name: Build on-device model runtime (llama-server, arm64)
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: bash scripts/build-llama-android.sh
 
       - name: Run tests
         run: ./gradlew testDebugUnitTest

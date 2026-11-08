@@ -280,11 +280,24 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         var lastChangeAt = 0L
     }
 
-    private enum class MicExit { STOPPED, NO_PERMISSION, FAILED, BLOCKED }
+    private enum class MicExit { STOPPED, NO_PERMISSION, FAILED, BLOCKED, RESTART }
 
     @Volatile private var micProblemReported = false
 
     private fun alive(gen: Int) = running && !released && generation == gen
+
+    /** True while the microphone is open in "voice call" mode (echo cancellation on). */
+    @Volatile private var openedWithEcho = false
+
+    /** Last time Jarvis was speaking; echo cancellation stays on a little after, so the end of a sentence is not heard as the user. */
+    @Volatile private var lastSpeakingAt = 0L
+
+    private fun wantsEchoCancellation(): Boolean {
+        if (!echoCancellation) return false
+        val now = SystemClock.elapsedRealtime()
+        if (speakingWords != null) lastSpeakingAt = now
+        return now - lastSpeakingAt < ECHO_HOLD_MS
+    }
 
     private fun isDigitalSilence(pcm: ShortArray, n: Int): Boolean {
         for (i in 0 until n) if (pcm[i].toInt() != 0) return false
@@ -305,6 +318,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
             when (exit) {
                 MicExit.NO_PERMISSION -> { running = false; return }
                 MicExit.STOPPED -> return
+                MicExit.RESTART -> Unit // switching microphone mode on purpose: reopen at once, not a failure
                 MicExit.FAILED, MicExit.BLOCKED -> {
                     if (SystemClock.elapsedRealtime() - startedAt > 30_000) failures = 0 // it was healthy for a while
                     failures++
@@ -334,12 +348,17 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
             val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
             // The "voice call" source switches on the phone's echo cancellation, so Jarvis's own voice
             // is largely removed from what the microphone hears and the user can talk over it.
-            val source = if (echoCancellation) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION
+            // Idle listening uses the plain recognition source: the "voice call" source runs the phone's call-quality noise
+            // suppression and gain control, which flattens quiet or distant speech and makes "Hey Jarvis" much harder to
+            // catch. The call source (with echo cancellation) is used only while Jarvis is talking, so the user can interrupt.
+            val withEcho = wantsEchoCancellation()
+            openedWithEcho = withEcho
+            val source = if (withEcho) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION
             record = AudioRecord(
                 source, SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, SAMPLE_RATE / 5 * 2),
             )
-            if (echoCancellation) echoCanceller = runCatching {
+            if (withEcho) echoCanceller = runCatching {
                 if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(record.audioSessionId)?.apply { enabled = true } else null
             }.getOrNull()
             if (record.state != AudioRecord.STATE_INITIALIZED) return MicExit.FAILED
@@ -357,7 +376,10 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
                 }
                 if (n == 0) continue
                 errorReads = 0
-                if (++reads % 10 == 0 && record.recordingState != AudioRecord.RECORDSTATE_RECORDING) return MicExit.FAILED
+                reads++
+                if (reads % 10 == 0 && record.recordingState != AudioRecord.RECORDSTATE_RECORDING) return MicExit.FAILED
+                // Checked every 0.3 s so the call-mode microphone is ready within a moment of Jarvis starting to speak.
+                if (reads % 3 == 0 && wantsEchoCancellation() != openedWithEcho) return MicExit.RESTART
                 if (reads == 10 && micProblemReported) {
                     micProblemReported = false
                     main.post { onMicProblem?.invoke("ok", 0) } // a second of real audio: the microphone is back
@@ -544,6 +566,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         const val SAMPLE_RATE = 16000
         private const val END_OF_SPEECH_MS = 1300L
         private const val MAX_READ_ERRORS = 10
+        private const val ECHO_HOLD_MS = 1200L
         private const val SILENT_READS = 50          // 5 s of exact zeros = the microphone is blocked
         private const val MAX_BLOCKED_RESTARTS = 2   // after that, assume the phone really outputs digital silence
         private const val TARGET_SPEECH_RMS = 0.06f

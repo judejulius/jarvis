@@ -59,6 +59,13 @@ class AppMatcherTest {
         assertNull(pkg("door"))
     }
 
+    @Test fun aKnownAppThatIsNotInstalledIsReportedAsSuch() {
+        assertEquals("snapchat", AppMatcher.match("snapchat", installed).notInstalled)
+        assertEquals("spotify", AppMatcher.match("spotify", installed).notInstalled)
+        assertNull(AppMatcher.match("door", installed).notInstalled)
+        assertNull(AppMatcher.match("youtube", installed).notInstalled)
+    }
+
     @Test fun learnsOnlyPlausibleMishearings() {
         assertTrue(AppMatcher.similar("whtsup", "WhatsApp"))
         assertFalse(AppMatcher.similar("maps", "WhatsApp"))

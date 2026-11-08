@@ -1,9 +1,16 @@
 package com.jarvis.assistant.router
 
-data class AppEntry(val label: String, val packageName: String)
+/** [activity] is the launcher activity, when known: launching it directly works for apps that have no default launch intent. */
+data class AppEntry(val label: String, val packageName: String, val activity: String? = null)
 
 /** [app] is the match. If [ambiguous] is not empty, several installed apps fit equally well and none was chosen. */
-data class AppMatch(val app: AppEntry?, val ambiguous: List<AppEntry> = emptyList(), val how: String = "")
+data class AppMatch(
+    val app: AppEntry?,
+    val ambiguous: List<AppEntry> = emptyList(),
+    val how: String = "",
+    /** Set when the name is a well-known app that is not installed on this phone ("WhatsApp"). */
+    val notInstalled: String? = null,
+)
 
 /**
  * Finds the installed app a user means, from a spoken name. Order: what the user taught Jarvis, well-known apps,
@@ -65,9 +72,11 @@ object AppMatcher {
 
         learned(q)?.let { pkg -> byPackage[pkg]?.let { return AppMatch(it, how = "learned") } }
 
+        var missing: String? = null
         for ((names, packages) in BUILT_IN) {
             if (q in names) {
                 packages.firstNotNullOfOrNull { byPackage[it] }?.let { return AppMatch(it, how = "builtin") }
+                missing = names.first()
             }
         }
 
@@ -86,7 +95,7 @@ object AppMatcher {
                 pick(labels.filter { (_, l) -> skeleton(l.replace(" ", "")) == qs }, "sound")?.let { return it }
             }
         }
-        return AppMatch(null)
+        return AppMatch(null, notInstalled = missing)
     }
 
     private fun pick(hits: List<Pair<AppEntry, String>>, how: String): AppMatch? = when {

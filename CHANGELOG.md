@@ -16,6 +16,17 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - The on-phone model is warmed up the moment "Hey Jarvis" is heard, and the fixed part of its prompt is cacheable.
 - Per-stage latency log (`JarvisLatency`, stage names and milliseconds only).
 
+### Added (second round)
+- **On-device model runtime built into the app**: `llama-server` ships inside the APK (built by GitHub Actions), runs as a supervised child process on `127.0.0.1:18080` behind a random API key, restarts after a crash or hang, and is stopped when idle or when Android is short of memory. The model downloads once (resumable, storage-checked, size/GGUF/SHA-256 verified). Termux is now optional.
+- **Calling by contact name** with contact lookup (family words, Hindi names), "which one?" questions for ambiguous names, confirmation before dialling, and honest results.
+- **Daily greeting** ("Hello sir, good morning. What's the task for today?") once per local day; no more "On it" before every request.
+- **Streamed speech**: chat answers are spoken sentence by sentence while they are still being written.
+- **Task manager**: a new command replaces the task in front (screen tasks never fight over the screen), instant commands run alongside, answers can go to the background, "cancel" never claims to undo something already done, double-heard commands run once.
+- **"Open YouTube and play ..."** (search in the app, pick the first real video, confirm that sound starts) on a reusable app-action framework.
+- **Understanding unclear speech**: Google's alternative transcriptions, "when I say X, I mean Y" corrections, sound-alike app names confirmed with "Did you mean ...?", app launching through the launcher activity, "not installed" detection.
+- **Memory**: earlier tasks (last 100, local only, optional), secrets are never stored.
+- Microphone: idle listening now uses the plain recognition source; the call-mode source with echo cancellation is used only while Jarvis speaks.
+
 ### Changed
 - Phone control with the small on-phone model uses a shorter prompt, a shorter screen list and no screenshots; the date and your notes moved out of the system prompt so llama-server can cache it.
 - Network clients are shared, local-server timeouts are short when it is down, and local requests ask llama.cpp to reuse its prompt cache.

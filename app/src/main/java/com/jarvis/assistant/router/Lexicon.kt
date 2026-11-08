@@ -29,7 +29,7 @@ object Lexicon {
         "जलाओ" to "jalao", "जला" to "jala", "बुझाओ" to "bujhao", "बुझा" to "bujha",
         "लगाओ" to "lagao", "लगा" to "laga", "जाओ" to "jao", "जा" to "ja", "चलो" to "chalo",
         "दिखाओ" to "dikhao", "दिखा" to "dikha", "बताओ" to "batao", "बता" to "bata",
-        "ओपन" to "open", "लॉन्च" to "launch", "स्टार्ट" to "start", "ऑन" to "on", "ऑफ" to "off", "बैक" to "back",
+        "ओपन" to "open", "कॉल" to "call", "डायल" to "dial", "लॉन्च" to "launch", "स्टार्ट" to "start", "ऑन" to "on", "ऑफ" to "off", "बैक" to "back",
         "होम" to "home", "पीछे" to "peeche", "वापस" to "wapas", "ऊपर" to "upar", "उपर" to "upar", "नीचे" to "neeche",
         "स्क्रॉल" to "scroll", "स्क्रीनशॉट" to "screenshot", "सर्च" to "search", "खोजो" to "khojo", "ढूंढो" to "dhundo",
         "को" to "ko", "का" to "ka", "में" to "mein", "पर" to "par", "पे" to "pe", "क्या" to "kya", "है" to "hai", "हैं" to "hain",

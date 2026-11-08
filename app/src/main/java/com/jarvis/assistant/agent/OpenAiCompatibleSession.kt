@@ -87,21 +87,7 @@ class OpenAiCompatibleSession(
             messages += JSONObject().put("role", "user").put("content", if (images.isEmpty()) userText else parts)
         }
 
-        val body = JSONObject()
-            .put("model", config.model)
-            .put("messages", JSONArray(trimmedHistory()))
-            .put("max_tokens", maxTokens())
-            .apply {
-                if (tools.length() > 0) {
-                    put("tools", tools)
-                    put("tool_choice", "auto")
-                }
-                if (onPhone) {
-                    // llama.cpp options: reuse the cached start of the prompt, and answer steadily instead of creatively.
-                    put("cache_prompt", true)
-                    put("temperature", 0.3)
-                }
-            }
+        val body = buildBody(stream = false)
 
         val bodyText = body.toString()
         Log.i("JarvisTiming", "request provider=${config.preset.label} local=$onPhone promptChars=${bodyText.length}")
@@ -168,6 +154,73 @@ class OpenAiCompatibleSession(
         val finish = choice.optString("finish_reason")
         val note = if (finish == "length") "Response was cut off (max tokens)." else null
         return AssistantTurn(message.optString("content", "").takeUnless { message.isNull("content") } ?: "", calls, note)
+    }
+
+    private fun buildBody(stream: Boolean): JSONObject = JSONObject()
+        .put("model", config.model)
+        .put("messages", JSONArray(trimmedHistory()))
+        .put("max_tokens", maxTokens())
+        .apply {
+            if (stream) put("stream", true)
+            if (tools.length() > 0) {
+                put("tools", tools)
+                put("tool_choice", "auto")
+            }
+            if (onPhone) {
+                // llama.cpp options: reuse the cached start of the prompt, and answer steadily instead of creatively.
+                put("cache_prompt", true)
+                put("temperature", 0.3)
+            }
+        }
+
+    /** Plain chat streams: [onText] gets each piece as it arrives, so speech can start with the first sentence. */
+    override fun send(userText: String?, toolOutputs: List<ToolOutput>, onText: (String) -> Unit): AssistantTurn {
+        // A reply with tool calls is only usable whole, so anything involving tools is not streamed.
+        if (tools.length() > 0 || toolOutputs.isNotEmpty() || userText == null) return super.send(userText, toolOutputs, onText)
+        messages += JSONObject().put("role", "user").put("content", userText)
+        val bodyText = buildBody(stream = true).toString()
+        Log.i("JarvisTiming", "stream request provider=${config.preset.label} local=$onPhone promptChars=${bodyText.length}")
+        val request = Request.Builder()
+            .url(config.baseUrl.trimEnd('/') + "/chat/completions")
+            .apply { if (config.apiKey.isNotBlank()) header("Authorization", "Bearer ${config.apiKey}") }
+            .post(bodyText.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        if (cancelled.get()) throw IOException("Cancelled")
+        val call = http.newCall(request)
+        activeCall.set(call)
+        if (cancelled.get()) call.cancel()
+
+        val startedAt = SystemClock.elapsedRealtime()
+        var firstTokenAt = 0L
+        val text = StringBuilder()
+        try {
+            call.execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string().orEmpty()
+                    Log.e("JarvisAPI", "HTTP ${resp.code}: $err")
+                    throw IOException("HTTP ${resp.code} from ${config.preset.label}: ${err.take(500)}")
+                }
+                val reader = (resp.body ?: throw IOException("Empty response")).byteStream().bufferedReader()
+                while (true) {
+                    if (cancelled.get()) throw IOException("Cancelled")
+                    val line = reader.readLine() ?: break
+                    val event = SseParser.parseLine(line)
+                    if (event is SseParser.Event.Done) break
+                    if (event is SseParser.Event.Text) {
+                        if (text.isEmpty()) firstTokenAt = SystemClock.elapsedRealtime()
+                        text.append(event.text)
+                        onText(event.text)
+                    }
+                }
+            }
+        } finally {
+            activeCall.compareAndSet(call, null)
+        }
+        val now = SystemClock.elapsedRealtime()
+        Log.i("JarvisTiming", "stream provider=${config.preset.label} firstToken=${if (firstTokenAt > 0) firstTokenAt - startedAt else -1}ms total=${now - startedAt}ms chars=${text.length}")
+        messages += JSONObject().put("role", "assistant").put("content", text.toString())
+        return AssistantTurn(text.toString(), emptyList(), null)
     }
 
     private fun maxTokens(): Int = when {

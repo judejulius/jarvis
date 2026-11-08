@@ -92,4 +92,39 @@ class MemoryStoreTest {
         assertEquals(MemoryStore.MAX_FACTS, facts.size)
         assertTrue(facts.any { it.title == "I prefer short answers" })
     }
+
+    @Test
+    fun phraseCorrectionsAreStoredAndNeverMistakenForApps() {
+        store.addPhraseCorrection("you too", "youtube")
+        assertEquals(mapOf("you too" to "youtube"), store.phraseCorrections())
+        assertNull(store.appAlias("you too")) // it is a text correction, not a package name
+        store.addAlias("yt", "com.google.android.youtube", "YouTube")
+        assertEquals(mapOf("you too" to "youtube"), store.phraseCorrections()) // app names are not corrections
+        assertEquals(1, store.forget("you too"))
+        assertTrue(store.phraseCorrections().isEmpty())
+    }
+
+    @Test
+    fun earlierTasksAreFoundAndCanBeDeleted() {
+        store.addTask("search for pizza places near me", true)
+        store.addTask("open chrome", false)
+        store.addTask("my otp is 123456 please remember", true) // never stored
+        assertEquals(listOf("search for pizza places near me"), store.relatedTasks("pizza recommendations"))
+        assertEquals(listOf("open chrome (did not work)"), store.relatedTasks("chrome"))
+        assertTrue(store.relatedTasks("otp").isEmpty())
+        val tasks = store.all().filter { it.kind == MemoryStore.Kind.TASK }
+        assertEquals(2, tasks.size)
+        store.delete(MemoryStore.Kind.TASK, tasks.first().id)
+        assertEquals(1, store.all().count { it.kind == MemoryStore.Kind.TASK })
+        store.clearAll()
+        assertTrue(store.all().isEmpty())
+    }
+
+    @Test
+    fun taskHistoryIsOnlyShownToLocalModelsUnlessCloudSharingIsOn() {
+        store.addTask("order biryani from the usual place", true)
+        assertTrue(store.promptContext("biryani", toLocal = true, shareWithCloud = false).contains("biryani"))
+        assertTrue(store.promptContext("biryani", toLocal = false, shareWithCloud = false).isEmpty())
+        assertTrue(store.promptContext("biryani", toLocal = false, shareWithCloud = true).contains("biryani"))
+    }
 }
