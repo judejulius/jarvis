@@ -256,6 +256,43 @@ class Settings(context: Context) {
         get() = prefs.getString("termux_script", DEFAULT_TERMUX_SCRIPT) ?: DEFAULT_TERMUX_SCRIPT
         set(v) = prefs.edit().putString("termux_script", v.ifBlank { DEFAULT_TERMUX_SCRIPT }).apply()
 
+    /** Local date (yyyy-MM-dd) of the last daily greeting. Kept across restarts so Jarvis greets once per day. */
+    var lastGreetingDate: String?
+        get() = prefs.getString("last_greeting_date", null)
+        set(v) = prefs.edit().putString("last_greeting_date", v).apply()
+
+    /** Speak a chat answer sentence by sentence as it is written, instead of waiting for the whole answer. */
+    var streamReplies: Boolean
+        get() = prefs.getBoolean("stream_replies", true)
+        set(v) = prefs.edit().putBoolean("stream_replies", v).apply()
+
+    /** Remember short lines about the tasks Jarvis did (the last 100), to answer "what did I ask about X?". Local only. */
+    var rememberTasks: Boolean
+        get() = prefs.getBoolean("remember_tasks", true)
+        set(v) = prefs.edit().putBoolean("remember_tasks", v).apply()
+
+    // ---- On-device model runtime (llama-server shipped inside the app) ----
+
+    /** Use the model server that ships inside the app. Turn off to rely on Termux or cloud models only. */
+    var embeddedRuntimeEnabled: Boolean
+        get() = prefs.getBoolean("embedded_runtime", true)
+        set(v) = prefs.edit().putBoolean("embedded_runtime", v).apply()
+
+    /** Random key the app uses to talk to its own model server; no other app knows it. */
+    var runtimeApiKey: String
+        get() = prefs.getString("runtime_key", "") ?: ""
+        set(v) = prefs.edit().putString("runtime_key", v).apply()
+
+    /** Minutes without a request before the model is unloaded to free about 1 GB of memory. 0 = keep it loaded. */
+    var runtimeKeepWarmMinutes: Int
+        get() = prefs.getInt("runtime_keep_warm_min", 20)
+        set(v) = prefs.edit().putInt("runtime_keep_warm_min", v.coerceAtLeast(0)).apply()
+
+    /** Allow the 1 GB model download on mobile data. Off by default: it waits for Wi-Fi. */
+    var downloadModelOnMobile: Boolean
+        get() = prefs.getBoolean("model_download_mobile", false)
+        set(v) = prefs.edit().putBoolean("model_download_mobile", v).apply()
+
     companion object {
         const val DEFAULT_TERMUX_SCRIPT = "/data/data/com.termux/files/home/.jarvis/start-llama.sh"
     }

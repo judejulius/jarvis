@@ -105,8 +105,7 @@ class FastCommandRouterTest {
     @Test fun dialOnlyWithRealNumbers() {
         assertEquals(FastCommand.Dial("9876543210"), p("call 9876543210"))
         assertEquals(FastCommand.Dial("9876543210"), p("9876543210 ko call karo"))
-        assertNull(p("call mom"))
-        assertNull(p("call 98765"))
+        assertNull(p("call 98765")) // too short to be a number, and a name cannot contain digits
     }
 
     @Test fun settingsPages() {
@@ -152,6 +151,36 @@ class FastCommandRouterTest {
         assertEquals(FastCommand.SetLanguage("hi"), p("listen in hindi"))
         assertEquals(FastCommand.SetLanguage("en"), p("english mode"))
         assertNull(p("hindi"))
+    }
+
+    @Test fun playingOnYouTube() {
+        assertEquals(FastCommand.PlayYouTube("despacito"), p("open YouTube and play Despacito"))
+        assertEquals(FastCommand.PlayYouTube("lofi music"), p("play lofi music on youtube"))
+        assertEquals(FastCommand.PlayYouTube("arijit singh songs"), p("youtube par arijit singh songs chalao"))
+        assertEquals(FastCommand.PlayYouTube("kesariya"), p("kesariya youtube par bajao"))
+        assertEquals(FastCommand.WebSearch("cats", "youtube"), p("search cats on youtube"))
+        assertEquals(FastCommand.OpenApp("youtube"), p("open youtube"))
+        assertNull(p("open youtube and play the first video that you see in the list of recommended items"))
+    }
+
+    @Test fun callingByName() {
+        assertEquals(FastCommand.CallContact("mom"), p("call mom"))
+        assertEquals(FastCommand.CallContact("rahul sharma"), p("Hey Jarvis, call Rahul Sharma"))
+        assertEquals(FastCommand.CallContact("rahul"), p("rahul ko call karo"))
+        assertEquals(FastCommand.CallContact("mummy"), p("mummy ko phone lagao"))
+        assertEquals(FastCommand.CallContact("प्रिया"), p("प्रिया को कॉल करो"))
+        assertEquals(FastCommand.Dial("9876543210"), p("call 9876543210"))
+        assertNull(p("call me a taxi"))
+        assertNull(p("call back"))
+        assertNull(p("call"))
+    }
+
+    @Test fun runtimeCommands() {
+        assertEquals(FastCommand.RuntimeControl(RuntimeAction.DOWNLOAD), p("download the offline model"))
+        assertEquals(FastCommand.RuntimeControl(RuntimeAction.DOWNLOAD), p("set up the on-device model"))
+        assertEquals(FastCommand.RuntimeControl(RuntimeAction.STATUS), p("is the local model running"))
+        assertEquals(FastCommand.RuntimeControl(RuntimeAction.STATUS), p("offline model status"))
+        assertNull(p("download a movie"))
     }
 
     @Test fun conversationIsNotACommand() {

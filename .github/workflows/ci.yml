@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  LLAMA_CPP_REF: b12099
+
 # A newer push to the same branch replaces a build that is still running.
 concurrency:
   group: ci-${{ github.ref }}
@@ -33,6 +36,20 @@ jobs:
         with:
           path: app/libs/*.aar
           key: sherpa-onnx-${{ hashFiles('app/build.gradle.kts') }}
+
+      - name: Cache on-device model runtime
+        id: llama-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libllama_server.so
+          key: llama-server-${{ env.LLAMA_CPP_REF }}-${{ hashFiles('scripts/build-llama-android.sh') }}
+
+      # llama-server for arm64 is built from source once (then cached). If this step fails, the APK still builds; the app
+      # then works without the on-device runtime (Termux or cloud models).
+      - name: Build on-device model runtime (llama-server, arm64)
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: bash scripts/build-llama-android.sh
 
       # The APK is built and uploaded first, so a failing test or lint rule never hides an installable build.
       # The tests and lint still run below and still turn the workflow red when they fail.

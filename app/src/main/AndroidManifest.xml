@@ -16,6 +16,10 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Starts the local model server (llama-server) inside Termux. Needs Termux's allow-external-apps setting; see termux/install-termux.sh -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <!-- "Call Rahul": find the contact, place the call, and confirm the call started -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <!-- Lets open_app see every launchable app on Android 11+ -->
     <queries>
@@ -31,6 +35,8 @@
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
+
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application
         android:name=".JarvisApp"
@@ -54,6 +60,12 @@
         <activity
             android:name=".ui.OnboardingActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".contacts.PermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <activity
             android:name=".memory.MemoryActivity"

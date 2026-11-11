@@ -201,8 +201,17 @@ class JarvisAccessibilityService : AccessibilityService() {
         false
     }
 
-    /** Launches the app with [packageName]. True if Android accepted the launch (see [waitForForeground] to confirm). */
-    fun openPackage(packageName: String): Boolean {
+    /**
+     * Launches an app. Uses its launcher activity when that is known (works for apps without a default launch intent,
+     * cloned apps and some manufacturer apps), otherwise the package's default launch intent.
+     * True if Android accepted the launch (see [waitForForeground] to confirm).
+     */
+    fun openPackage(packageName: String, activity: String? = null): Boolean {
+        if (activity != null) {
+            val direct = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                .setClassName(packageName, activity).addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            if (launch(direct)) return true
+        }
         val intent = packageManager.getLaunchIntentForPackage(packageName) ?: return false
         return launch(intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
     }

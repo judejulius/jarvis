@@ -16,6 +16,12 @@ class MemoryIntentParserTest {
         assertEquals(MemoryIntent.TeachApp("yutub", "youtube"), p("yutub ka matlab youtube app hai"))
     }
 
+    @Test fun teachesHowTheUserSounds() {
+        assertEquals(MemoryIntent.TeachPhrase("you too", "youtube"), p("when I say you too, I mean youtube"))
+        assertEquals(MemoryIntent.TeachPhrase("what sap", "whatsapp"), p("When I say what sap I meant WhatsApp."))
+        assertEquals(MemoryIntent.TeachPhrase("yutub", "youtube"), p("jab main yutub bolun to mera matlab youtube hota hai"))
+    }
+
     @Test fun remembersFactsAndPreferences() {
         assertEquals(MemoryIntent.Remember("I prefer short answers", true), p("remember that I prefer short answers"))
         assertEquals(MemoryIntent.Remember("my wifi name is home", false), p("Remember my wifi name is home."))

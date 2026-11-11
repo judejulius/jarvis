@@ -23,21 +23,21 @@ object LocalWarmup {
 
     @Volatile private var lastAt = -MIN_GAP_MS
 
-    fun warmAsync(baseUrl: String, model: String, system: String, tools: List<ToolSpec>) {
+    fun warmAsync(baseUrl: String, model: String, system: String, tools: List<ToolSpec>, apiKey: String = "") {
         val now = SystemClock.elapsedRealtime()
         if (now - lastAt < MIN_GAP_MS) return
         if (!inFlight.compareAndSet(false, true)) return
         lastAt = now
         Thread({
             try {
-                warm(baseUrl, model, system, tools)
+                warm(baseUrl, model, system, tools, apiKey)
             } finally {
                 inFlight.set(false)
             }
         }, "jarvis-warmup").apply { isDaemon = true }.start()
     }
 
-    private fun warm(baseUrl: String, model: String, system: String, tools: List<ToolSpec>) {
+    private fun warm(baseUrl: String, model: String, system: String, tools: List<ToolSpec>, apiKey: String) {
         val origin = Endpoints.origin(baseUrl) ?: return
         if (ServerHealth.check(origin, 400) != ServerHealth.State.OK) return
         val started = SystemClock.elapsedRealtime()
@@ -62,6 +62,7 @@ object LocalWarmup {
             c.requestMethod = "POST"
             c.doOutput = true
             c.setRequestProperty("Content-Type", "application/json")
+            if (apiKey.isNotBlank()) c.setRequestProperty("Authorization", "Bearer $apiKey")
             c.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = c.responseCode
             c.inputStream.use { it.readBytes() }

@@ -124,3 +124,61 @@ flowchart LR
 **Server flags** (from your server log: `n_parallel auto = 4` slots, prompt-cache limit 8192 MiB on a 7.4 GiB phone, `-c 2048`): one slot, 512 MiB cache, context 4096. Context 4096 costs about 117 MB of KV cache for this model (28 layers x 2 KV heads x 128 dims x 2 x 2 bytes = about 28 KB/token); prefill speed, not memory, is the real limit, so the prompt was also made smaller and cacheable instead of just making the window bigger.
 
 **Why not a bigger/other model, openWakeWord, other ASR:** no measurement here shows a benefit. The measured weak points are Hindi quality (needs a different model family, not a bigger Qwen) and prefill speed (prompt size and caching).
+
+---
+
+# Second round: what was added
+
+| Package | What it does |
+|---|---|
+| `runtime/` | `GgufDownloader` (resume, storage check, verification), `RuntimeConfig` + `RuntimePolicy` (command line, restart rules), `EmbeddedRuntime` (child process supervisor) |
+| `contacts/` | `ContactMatcher` + `Translit` (pure), `ContactResolver`, `PermissionActivity` |
+| `tasks/` | `TaskBoard`, `Interrupt`, `TaskControl` (pure); the service owns the threads |
+| `apps/` | `AppAction` framework and `YouTubeAction` |
+| `persona/` | `Persona`, `DailyGreeting` |
+| `voice/` | `SentenceChunker`, `ReplyStreamer`; adaptive microphone mode in `VoiceInput` |
+| `agent/` | `SseParser`; streaming in `OpenAiCompatibleSession`; `SensitiveActions` |
+
+## On-device runtime lifecycle
+```mermaid
+stateDiagram-v2
+  [*] --> NoBinary: APK built without llama-server
+  [*] --> NoModel: binary present, model missing
+  NoModel --> Downloading: Wi-Fi (or user asked) and storage ok
+  Downloading --> NoModel: cancelled / failed (resumes later)
+  Downloading --> Stopped: size, GGUF header and SHA-256 verified
+  Stopped --> Starting: wake word, or a request needs it
+  Starting --> Running: /health ok (API key set, 127.0.0.1 only)
+  Starting --> Failed: exits while loading
+  Running --> Starting: crash (backoff 2 s ... 60 s) or hung (3 failed checks)
+  Running --> Stopped: idle 20 min, or Android reports low memory
+  Starting --> Failed: 5 crashes in a row
+```
+
+## Tasks and interruption
+```mermaid
+flowchart TD
+  CMD[New command heard] --> CTRL{Task-control phrase?}
+  CTRL -->|cancel / stop that| CAN[cancel foreground, say honestly what could not be undone] --> THEN{followed by a command?}
+  THEN -->|yes| NEWT
+  CTRL -->|put that in the background| BG{foreground is a chat answer?}
+  BG -->|yes| BGOK[answer continues; announced when done]
+  BG -->|no, uses the screen| BGNO[say so; a new command replaces it]
+  CTRL -->|what are you doing| ST[describe running tasks]
+  CTRL -->|no| DUP{same words running or started <1.2 s ago?}
+  DUP -->|yes| IGN[ignore: heard twice]
+  DUP -->|no| NEWT[classify: INSTANT / CHAT / PHONE]
+  NEWT -->|INSTANT| ALONG[run alongside, no cancel]
+  NEWT -->|CHAT or PHONE| REPL[replace foreground task] --> UI{PHONE?}
+  UI -->|yes| LOCK[wait up to 5 s for the screen lock] --> RUN
+  UI -->|no| RUN[run on its own thread]
+```
+A wake word while a task runs only opens the microphone: the task is replaced when a *command* is heard, not by a stray detection. A reply that arrives while the user is speaking is held, then spoken or dropped if a new command follows.
+
+## Streamed speech
+`OpenAiCompatibleSession` streams plain chat (`stream: true`); `SseParser` reads each line; `SentenceChunker` forms whole sentences (at least 24 characters, cut at `. ! ? ।`, not at decimals or "Dr."); `ReplyStreamer` speaks them one after another through the normal `say()`; the text of each sentence is shown as it is spoken. Replies that use tools (phone control) are not streamed.
+
+## Wake word: what the code audit found
+- The keyword tokens in `VoiceInput` (`▁HE Y ▁JA R VI S`) were checked against the model's real `bpe.model`: they are the correct tokenization. No change needed there.
+- The microphone was always opened with the *voice call* source and echo cancellation (the setting "interrupt by talking" is on by default). That path applies call-quality noise suppression and gain control to the signal, which commonly weakens quiet or distant speech. It is now used only while Jarvis speaks; idle listening uses the plain recognition source. This is a root-cause hypothesis from the code, **not measured** on your phone.
+- Recovery from read errors, blocked microphone and thread overlap was added in the first round.

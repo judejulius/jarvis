@@ -34,7 +34,7 @@ object Kokoro {
         // short replies to the most common instant commands, ready before they are needed
         "Okay.", "Done.", "Going back.", "Home.", "Flashlight on.", "Flashlight off.", "Paused.", "Playing.",
         "Sorry, I didn't catch that.",
-    )
+    ) + com.jarvis.assistant.persona.Persona.ALL_GREETINGS + com.jarvis.assistant.persona.Persona.ACKNOWLEDGEMENTS
 
     fun modelDir(context: Context) = File(context.filesDir, "kokoro")
     fun isInstalled(context: Context) =

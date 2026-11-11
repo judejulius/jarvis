@@ -22,6 +22,8 @@ object MemoryIntentParser {
             """(?:\s+to|\s+tab)?\s+(?:to\s+)?(.+?)\s+(?:kholo|khol do|khol dena|khol de|open karo|chalao|chalana)[.!]?$""",
         OPT,
     )
+    private val PHRASE_EN = Regex("""^(?:when|if|whenever) i (?:say|said) ["“']?(.+?)["”']?,?\s+(?:i|what i) mean(?:t)?\s+["“']?(.+?)["”']?[.!]?$""", OPT)
+    private val PHRASE_HI = Regex("""^(?:jab main|jab maine|jab)\s+(.+?)\s+(?:bolun|bolu|bolta hoon|bolta hu|kahun|kahu)(?:\s+to)?\s+mera matlab\s+(.+?)\s+(?:hota hai|hai|hota)[.!]?$""", OPT)
     private val TEACH_HI_MATLAB = Regex("""^(.+?)\s+ka matlab\s+(.+?)\s+(?:app\s+)?hai[.!]?$""", OPT)
 
     private val REMEMBER = Regex("""^(?:please\s+)?(?:remember|note|keep in mind|don't forget|dont forget)(?:\s+that)?[,:]?\s+(.+)$""", OPT)
@@ -56,6 +58,12 @@ object MemoryIntentParser {
     }
 
     private fun teach(s: String): MemoryIntent? {
+        (PHRASE_EN.matchEntire(s) ?: PHRASE_HI.matchEntire(s))?.let { p ->
+            val phrase = clean(p.groupValues[1]); val meaning = clean(p.groupValues[2])
+            if (phrase.isNotEmpty() && meaning.isNotEmpty() && phrase.split(' ').size <= 4 && meaning.split(' ').size <= 6) {
+                return MemoryIntent.TeachPhrase(phrase, meaning)
+            }
+        }
         val m = TEACH_WHEN.matchEntire(s) ?: TEACH_MEANS.matchEntire(s) ?: TEACH_HI.matchEntire(s) ?: TEACH_HI_MATLAB.matchEntire(s)
             ?: return null
         val phrase = clean(m.groupValues[1])

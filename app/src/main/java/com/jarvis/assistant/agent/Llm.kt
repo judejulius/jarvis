@@ -38,6 +38,13 @@ interface ChatSession {
 
     /** Send the initial user message, or tool outputs for the previous turn's tool calls. */
     fun send(userText: String?, toolOutputs: List<ToolOutput>): AssistantTurn
+
+    /**
+     * Like [send], but also reports the reply text piece by piece as it arrives, for providers that can stream it. Others
+     * report the whole reply once at the end, so callers need no special case.
+     */
+    fun send(userText: String?, toolOutputs: List<ToolOutput>, onText: (String) -> Unit): AssistantTurn =
+        send(userText, toolOutputs).also { if (it.text.isNotBlank()) onText(it.text) }
 }
 
 object Llm {

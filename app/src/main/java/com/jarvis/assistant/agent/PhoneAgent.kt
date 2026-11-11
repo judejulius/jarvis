@@ -22,6 +22,9 @@ interface AgentHost {
     fun ask(question: String): String?
     val isCancelled: Boolean
     fun attachSession(session: ChatSession) {}
+
+    /** Called after the agent did something that cannot be taken back (a message was sent, a call placed). */
+    fun onIrreversible() {}
 }
 
 data class AgentResult(val success: Boolean, val summary: String)
@@ -177,7 +180,12 @@ class PhoneAgent(
                         "Blocked: tapping \"$label\" would send, call or place something. First use ask_user to confirm with " +
                             "the user in one short question (who and what), then tap again if they say yes."
                     } else {
-                        a11y.tap(id).also { if (sensitive) userConfirmed = false } // each send needs its own yes
+                        a11y.tap(id).also {
+                            if (sensitive) {
+                                userConfirmed = false // each send needs its own yes
+                                host.onIrreversible()
+                            }
+                        }
                     }
                 }
                 "long_press" -> a11y.longPress(a.getInt("element_id"))

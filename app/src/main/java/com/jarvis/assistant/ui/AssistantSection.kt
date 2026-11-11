@@ -15,7 +15,9 @@ import com.jarvis.assistant.ai.AiMode
 import com.jarvis.assistant.ai.Endpoints
 import com.jarvis.assistant.ai.LocalServerManager
 import com.jarvis.assistant.ai.ServerHealth
+import com.jarvis.assistant.contacts.PermissionActivity
 import com.jarvis.assistant.memory.MemoryActivity
+import com.jarvis.assistant.runtime.EmbeddedRuntime
 
 /** The "Assistant" card on the Settings page: AI mode, voice language, safety and memory switches, on-phone model status. */
 object AssistantSection {
@@ -61,12 +63,64 @@ object AssistantSection {
             isChecked = settings.localServerAutoStart
             setOnCheckedChangeListener { _, checked -> settings.localServerAutoStart = checked }
         }
+        view.findViewById<MaterialButton>(R.id.permissionsButton).setOnClickListener {
+            context.startActivity(PermissionActivity.intent(context))
+        }
         view.findViewById<MaterialButton>(R.id.memoriesButton).setOnClickListener {
             context.startActivity(Intent(context, MemoryActivity::class.java))
         }
 
+        view.findViewById<MaterialSwitch>(R.id.rememberTasksSwitch).apply {
+            isChecked = settings.rememberTasks
+            setOnCheckedChangeListener { _, checked -> settings.rememberTasks = checked }
+        }
+        view.findViewById<MaterialSwitch>(R.id.embeddedSwitch).apply {
+            isChecked = settings.embeddedRuntimeEnabled
+            setOnCheckedChangeListener { _, checked -> settings.embeddedRuntimeEnabled = checked }
+        }
+        view.findViewById<MaterialSwitch>(R.id.mobileDownloadSwitch).apply {
+            isChecked = settings.downloadModelOnMobile
+            setOnCheckedChangeListener { _, checked -> settings.downloadModelOnMobile = checked }
+        }
+        val runtimeStatus = view.findViewById<TextView>(R.id.runtimeStatus)
+        val runtimeButton = view.findViewById<MaterialButton>(R.id.runtimeButton)
+        val runtime = EmbeddedRuntime.get(context)
+        runtimeButton.setOnClickListener {
+            if (runtime.status.phase == EmbeddedRuntime.Phase.DOWNLOADING) runtime.cancelDownload()
+            else runtime.startDownloadIfNeeded(settings.downloadModelOnMobile || true) // the user pressed the button
+            view.postDelayed({ showRuntime(runtime, runtimeStatus, runtimeButton) }, 600)
+        }
+        // While this page is open, keep the download/runtime line up to date.
+        val ticker = object : Runnable {
+            override fun run() {
+                showRuntime(runtime, runtimeStatus, runtimeButton)
+                if (view.isAttachedToWindow) view.postDelayed(this, 1500)
+            }
+        }
+        view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { v.post(ticker) }
+            override fun onViewDetachedFromWindow(v: View) { v.removeCallbacks(ticker) }
+        })
+
         val status = view.findViewById<TextView>(R.id.localStatus)
-        return { refreshStatus(context, settings, view, status) }
+        return { refreshStatus(context, settings, view, status); showRuntime(runtime, runtimeStatus, runtimeButton) }
+    }
+
+    private fun showRuntime(rt: EmbeddedRuntime, text: TextView, button: MaterialButton) {
+        val s = rt.status
+        val (line, label) = when {
+            !rt.isSupported() -> "This build has no on-device runtime. The model in Termux or your cloud models are used instead." to null
+            s.phase == EmbeddedRuntime.Phase.DOWNLOADING ->
+                "Downloading the on-device model${if (s.percent >= 0) ": ${s.percent}%" else "…"} (${s.detail})" to "Pause download"
+            s.phase == EmbeddedRuntime.Phase.RUNNING -> "On-device model: running." to null
+            s.phase == EmbeddedRuntime.Phase.STARTING -> "On-device model: starting…" to null
+            s.phase == EmbeddedRuntime.Phase.FAILED -> "On-device model problem: ${s.detail}" to null
+            rt.hasModel() -> "On-device model: installed. It starts when needed and stops after a while to save memory." to null
+            else -> (s.detail.ifBlank { "The on-device model (about 1 GB) is not downloaded yet." }) to "Download on-device model"
+        }
+        text.text = line
+        button.visibility = if (label == null) View.GONE else View.VISIBLE
+        if (label != null) button.text = label
     }
 
     private fun refreshStatus(context: Context, settings: Settings, view: View, status: TextView) {

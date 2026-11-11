@@ -6,6 +6,10 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.jarvis.assistant.router.AlternativePicker
+import com.jarvis.assistant.router.FastCommandRouter
+import com.jarvis.assistant.router.MemoryIntentParser
+import com.jarvis.assistant.tasks.TaskControl
 
 /** One-shot transcription of what the user says after the wake word. Must be used on the main thread. */
 class CommandListener(private val context: Context) {
@@ -31,8 +35,15 @@ class CommandListener(private val context: Context) {
             onResult(text)
         }
         r.setRecognitionListener(object : RecognitionListener {
-            override fun onResults(results: Bundle?) =
-                deliver(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim()?.ifEmpty { null })
+            override fun onResults(results: Bundle?) {
+                // Google returns several guesses. Take the first one Jarvis can act on, not just the first one.
+                val alternatives = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+                deliver(
+                    AlternativePicker.pick(alternatives) { text ->
+                        FastCommandRouter.parse(text) != null || MemoryIntentParser.parse(text) != null || TaskControl.parse(text) != null
+                    },
+                )
+            }
             override fun onError(error: Int) = deliver(null)
             override fun onReadyForSpeech(params: Bundle?) = Unit
             override fun onBeginningOfSpeech() = Unit
@@ -44,7 +55,7 @@ class CommandListener(private val context: Context) {
         })
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
         if (language != null) {

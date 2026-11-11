@@ -16,7 +16,7 @@ import com.jarvis.assistant.router.AppMatcher
 class MemoryStore private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DB_NAME, null, DB_VERSION) {
 
-    enum class Kind { ALIAS, FACT }
+    enum class Kind { ALIAS, FACT, TASK }
 
     /** One row as shown in the Memories screen. */
     data class Item(val kind: Kind, val id: Long, val title: String, val detail: String)
@@ -32,6 +32,7 @@ class MemoryStore private constructor(context: Context) :
             "CREATE TABLE fact(id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, style INTEGER NOT NULL DEFAULT 0, " +
                 "updated INTEGER NOT NULL)",
         )
+        createTaskTable(db)
         try {
             db.execSQL("CREATE VIRTUAL TABLE fact_fts USING fts4(text)")
         } catch (_: SQLException) {
@@ -39,7 +40,13 @@ class MemoryStore private constructor(context: Context) :
         }
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createTaskTable(db)
+    }
+
+    private fun createTaskTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS task(id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, ok INTEGER NOT NULL, updated INTEGER NOT NULL)")
+    }
 
     override fun onOpen(db: SQLiteDatabase) {
         ftsReady = db.rawQuery("SELECT name FROM sqlite_master WHERE name = 'fact_fts'", null).use { it.moveToFirst() }
@@ -61,12 +68,36 @@ class MemoryStore private constructor(context: Context) :
         writableDatabase.insertWithOnConflict("alias", null, v, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    /** Teaches that [phrase] (as the recognizer hears it) means [meaning]. Stored as an alias whose target starts with "text:". */
+    fun addPhraseCorrection(phrase: String, meaning: String) {
+        val key = AppMatcher.cleanQuery(phrase)
+        if (key.isEmpty() || meaning.isBlank()) return
+        val v = ContentValues().apply {
+            put("phrase", key)
+            put("target", "text:" + meaning.trim().take(60))
+            put("label", meaning.trim().take(60))
+            put("hits", 0)
+            put("updated", System.currentTimeMillis())
+        }
+        writableDatabase.insertWithOnConflict("alias", null, v, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /** All taught phrase corrections: what the recognizer hears -> what the user means. */
+    fun phraseCorrections(): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        readableDatabase.rawQuery("SELECT phrase, target FROM alias WHERE target LIKE 'text:%'", null).use {
+            while (it.moveToNext()) out[it.getString(0)] = it.getString(1).removePrefix("text:")
+        }
+        return out
+    }
+
     /** Package name taught for [phrase], or null. Counts a use. */
     fun appAlias(phrase: String): String? {
         val db = writableDatabase
         val target = db.rawQuery("SELECT target FROM alias WHERE phrase = ?", arrayOf(phrase)).use {
             if (it.moveToFirst()) it.getString(0) else null
         } ?: return null
+        if (target.startsWith("text:")) return null // a phrase correction, not an app
         db.execSQL("UPDATE alias SET hits = hits + 1 WHERE phrase = ?", arrayOf(phrase))
         return target
     }
@@ -136,8 +167,34 @@ class MemoryStore private constructor(context: Context) :
      */
     fun promptContext(task: String, toLocal: Boolean, shareWithCloud: Boolean): String {
         val style = styleFacts()
-        val relevant = if (toLocal || shareWithCloud) search(task) else emptyList()
-        return MemoryPrompt.build(style, relevant)
+        val shareable = toLocal || shareWithCloud
+        val relevant = if (shareable) search(task) else emptyList()
+        val tasks = if (shareable) relatedTasks(task) else emptyList()
+        return MemoryPrompt.build(style, relevant, tasks)
+    }
+
+    // ---- Tasks that were done ----
+
+    /** Remembers that a task was done (a short, cleaned line). Only the most recent [MAX_TASKS] are kept. */
+    fun addTask(text: String, ok: Boolean) {
+        val clean = MemoryPrompt.sanitize(text, 80)
+        if (clean.length < 3 || SensitiveFilter.isSensitive(clean)) return
+        val db = writableDatabase
+        db.execSQL("INSERT INTO task(text, ok, updated) VALUES (?, ?, ?)", arrayOf(clean, if (ok) 1 else 0, System.currentTimeMillis()))
+        db.execSQL("DELETE FROM task WHERE id NOT IN (SELECT id FROM task ORDER BY id DESC LIMIT $MAX_TASKS)")
+    }
+
+    /** Earlier tasks that share words with [query], newest first. */
+    fun relatedTasks(query: String, limit: Int = 3): List<String> {
+        val terms = MemoryPrompt.searchTerms(query)
+        if (terms.isEmpty()) return emptyList()
+        val where = terms.joinToString(" OR ") { "lower(text) LIKE ?" }
+        val args = terms.map { "%$it%" } + limit.toString()
+        return readableDatabase.rawQuery("SELECT text, ok FROM task WHERE ($where) ORDER BY id DESC LIMIT ?", args.toTypedArray()).use {
+            val l = ArrayList<String>()
+            while (it.moveToNext()) l += it.getString(0) + if (it.getInt(1) == 1) "" else " (did not work)"
+            l
+        }
     }
 
     // ---- Viewing, editing, deleting ----
@@ -151,6 +208,9 @@ class MemoryStore private constructor(context: Context) :
         db.rawQuery("SELECT id, text, style FROM fact ORDER BY updated DESC", null).use {
             while (it.moveToNext()) items += Item(Kind.FACT, it.getLong(0), it.getString(1), if (it.getInt(2) == 1) "How to answer" else "Note")
         }
+        db.rawQuery("SELECT id, text, ok FROM task ORDER BY id DESC LIMIT 30", null).use {
+            while (it.moveToNext()) items += Item(Kind.TASK, it.getLong(0), it.getString(1), if (it.getInt(2) == 1) "Earlier task" else "Earlier task (did not work)")
+        }
         return items
     }
 
@@ -158,6 +218,7 @@ class MemoryStore private constructor(context: Context) :
         val db = writableDatabase
         when (kind) {
             Kind.ALIAS -> db.delete("alias", "id = ?", arrayOf(id.toString()))
+            Kind.TASK -> db.delete("task", "id = ?", arrayOf(id.toString()))
             Kind.FACT -> {
                 db.delete("fact", "id = ?", arrayOf(id.toString()))
                 ftsDelete(db, id)
@@ -202,6 +263,7 @@ class MemoryStore private constructor(context: Context) :
         val db = writableDatabase
         db.delete("alias", null, null)
         db.delete("fact", null, null)
+        db.delete("task", null, null)
         if (ftsReady) runCatching { db.execSQL("DELETE FROM fact_fts") }
     }
 
@@ -242,8 +304,9 @@ class MemoryStore private constructor(context: Context) :
 
     companion object {
         private const val DB_NAME = "jarvis_memory.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
         const val MAX_FACTS = 300
+        const val MAX_TASKS = 100
 
         @Volatile private var instance: MemoryStore? = null
 

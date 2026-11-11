@@ -24,3 +24,16 @@ Evidence: source ZIPs (31 Kotlin files, line counts equal to commit `9ed600d`), 
 ## File ledger (07-git-evidence vs. uploaded ZIPs)
 
 All 31 Kotlin files listed in `07-git-evidence.txt` exist in the ZIPs with identical line counts. Not in the ZIPs and not needed to build: `.gitignore`, `LICENSE`, `CONTRIBUTING.md`, `test-native/` (only for `-Preal` runs), launcher icons (the app uses adaptive vector icons), `app/libs/*.aar` (downloaded by Gradle at build time). Evidence of repository state: clean working tree, HEAD `9ed600d`.
+
+## Second round findings
+
+| # | Finding | Status | Fixed by |
+|---|---|---|---|
+| 17 | Local model depended on a manually started Termux server; nothing in the APK could start it | Confirmed | `runtime/` embedded server + CI build |
+| 18 | Microphone always used the voice-call source with echo cancellation | Confirmed (source) | adaptive mode; effect on detection is a hypothesis |
+| 19 | Wake word keyword tokens | **Verified correct** against the model's BPE | none needed |
+| 20 | A wake word while a task ran cancelled it at once; the single worker thread made new commands wait | Confirmed (source) | task board, thread pool, hold/resume |
+| 21 | "On it." spoken before every model request | Confirmed (source) | delayed, varied acknowledgement |
+| 22 | The whole answer was awaited before any speech | Confirmed (source) | streaming + sentence chunking |
+| 23 | Contact calling did not exist as a fast path; the model could claim a call without placing one | Confirmed (source) | `contacts/` + verified call result |
+| 24 | App launch used the default launch intent only; "not installed" and sound-alike names were not handled | Confirmed (source) | launcher activity, `notInstalled`, confirmation |

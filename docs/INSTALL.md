@@ -2,65 +2,62 @@
 
 ## 1. Apply the changes to your repository (from Termux)
 
-The delivery ZIP contains the full project (`project/`), one patch per file and one combined patch (`patches/`).
-Your repository was clean at commit `9ed600d` when the evidence was taken, so the combined patch applies directly.
+The delivery has two patch sets. Check which one fits your repository:
 
 ```bash
-cd ~/jarvis                      # your repository
-git status --short               # must print nothing; if it prints changes, commit or stash them first
-git checkout -b jarvis-upgrade   # optional: keep master untouched until you have tested the APK
-
-unzip -o ~/storage/shared/JARVIS-IMPLEMENTED-complete.zip 'JARVIS-IMPLEMENTED/patches/all-changes.patch' -d /tmp/jv
-git apply --check /tmp/jv/JARVIS-IMPLEMENTED/patches/all-changes.patch   # prints nothing if it fits
-git apply /tmp/jv/JARVIS-IMPLEMENTED/patches/all-changes.patch
-git diff --check                 # whitespace problems (should print nothing)
-git status --short               # review the list
-git add -A && git commit -m "Jarvis: instant commands, AI modes, local server supervision, memory"
-git push origin jarvis-upgrade   # or master, when you are ready
+cd ~/jarvis
+git log --oneline -n 5 | cat
 ```
 
-If `git apply --check` complains, do not force it. Copy the files from `project/` instead
-(`cp -a /tmp/jv/JARVIS-IMPLEMENTED/project/. ~/jarvis/` after unzipping that folder), then run `chmod +x termux/*.sh` (copying can drop the executable bit; the patch keeps it) and review with `git diff`.
+- If the log shows **"Jarvis: instant commands, AI modes, local server supervision, memory"** (the previous delivery), use the **series** in `patches/series/` (one commit per phase, applied with `git am`).
+- If your history ends at `9ed600d` (the original code), use `patches/cumulative-from-original.patch` (everything in one go).
+
+```bash
+git status --short                 # must print nothing
+git checkout -b jarvis-v2          # keep master untouched until the APK is tested
+unzip -o ~/storage/shared/JARVIS-IMPLEMENTED-v2-complete.zip 'JARVIS-IMPLEMENTED-v2/patches/*' -d /tmp/jv
+
+# A) previous delivery already applied:
+git am /tmp/jv/JARVIS-IMPLEMENTED-v2/patches/series/*.patch
+# B) original code only:
+git apply --check /tmp/jv/JARVIS-IMPLEMENTED-v2/patches/cumulative-from-original.patch && \
+git apply /tmp/jv/JARVIS-IMPLEMENTED-v2/patches/cumulative-from-original.patch
+
+git diff --check                   # prints nothing when clean
+git push origin jarvis-v2          # or master when you are ready
+```
+
+If `git am` stops, run `git am --abort` and use the full `project/` folder instead
+(`cp -a` it over the repository, then `chmod +x termux/*.sh scripts/*.sh`) and review with `git diff`.
 
 ## 2. Get the APK
 
-GitHub > Actions > the latest **CI** run > Artifacts:
+GitHub > Actions > the latest **CI** run:
 
-- `jarvis-debug-apk` – the app. It is uploaded **before** the tests run, so you get an APK whenever the code compiles.
-- `test-and-lint-reports` – unit-test and lint reports. If the run is red, open this and send me the failing test names.
+1. The first run **builds `llama-server` for arm64 from source** (about 10 to 25 minutes) and caches it; later runs reuse it.
+   If that step fails the run continues and the APK is built **without** the on-device runtime (Termux or cloud models are used).
+2. Artifacts: `jarvis-debug-apk` (uploaded before the tests run), `test-and-lint-reports`.
 
-Install the APK as usual. Do not treat it as confirmed working until you have tried it on the phone.
+## 3. First start on the phone
 
-## 3. One-time Termux setup (local model)
+1. Open Jarvis, allow microphone, notifications and phone control (Accessibility) as before.
+2. **On-device model**: on Wi-Fi it downloads by itself (about 1 GB; Settings > Assistant shows progress; on mobile data it waits unless you allow it or say "download the offline model"). Needs about 1.2 GB free storage.
+3. **Calls**: Settings > Assistant > *Allow contacts and calling* (contacts, calling, and phone state so Jarvis can confirm that a call started).
+4. Battery: set Jarvis to *Unrestricted*; on Realme also allow auto-launch / background activity and lock the app in recents.
 
-Needs the Termux packages `llama-cpp`, `tmux`, `curl` (you already have them) and the Termux:Boot app (opened once).
+## 4. Termux (optional now)
 
-```bash
-cd /tmp/jv && unzip -o ~/storage/shared/JARVIS-IMPLEMENTED-complete.zip 'JARVIS-IMPLEMENTED/termux/*'
-bash /tmp/jv/JARVIS-IMPLEMENTED/termux/install-termux.sh
-```
+The built-in runtime replaces the Termux server. If you still want the Termux server as a fallback, run
+`bash termux/install-termux.sh` once, as described in the previous release notes (kept in `termux/`).
 
-The installer copies three scripts to `~/.jarvis/`, writes `~/.jarvis/llama.conf` (model path, port, context 4096,
-one slot, 512 MiB prompt cache), sets `allow-external-apps = true` in `~/.termux/termux.properties`, replaces
-`~/.termux/boot/start-jarvis` (the old one is kept as `.bak-<time>`), and starts the server. It never deletes anything.
+## 5. Try it
 
-Then, on the phone (Android makes you do these yourself):
+"Hey Jarvis" · "open YouTube and play Despacito" · "call Rahul" · "put that in the background and open WhatsApp" ·
+"stop that, open Chrome" · "what are you doing" · "when I say you too, I mean youtube" · "remember that I prefer short answers" ·
+"offline mode" · "is the local model running".
 
-1. Settings > Apps > Jarvis > Permissions > Additional permissions: allow **Run commands in Termux environment**.
-2. Settings > Battery: set **Termux** and **Jarvis** to *Unrestricted*; on Realme also allow auto-launch / background activity for both, and lock both in the recent-apps list.
-3. In Jarvis > Models: your Qwen profile's base URL should be `http://127.0.0.1:8080/v1` (or `localhost`). The model name can be anything.
-4. In Jarvis > Settings > Assistant: the status line should read "On-phone model: running".
+## 6. Logs for me if something misbehaves
 
-Check the server at any time with `bash ~/.jarvis/status.sh`. Tune it in `~/.jarvis/llama.conf` (then stop the old session with
-`tmux kill-session -t jarvis-ai` and run `bash ~/.jarvis/start-llama.sh`).
-
-## 4. Try it
-
-"Hey Jarvis, open YouTube" · "scroll down" · "volume up" · "turn on the flashlight" · "set a timer for 5 minutes" ·
-"offline mode" · "when I say yt, open YouTube" · "remember that I prefer short answers" · "what do you remember".
-
-## 5. If something misbehaves
-
-Useful log tags (adb logcat or the crash-report share): `JarvisLatency` (stage timings), `JarvisTiming` (model requests,
-warm-up), `LocalServer` (start requests), `FastAction`, `VoiceInput`, `PhoneAgent`. They contain stage names and
-milliseconds, not what you said.
+Tags: `JarvisLatency` (stage timings incl. first speech), `JarvisTiming` (model requests, stream first-token time), `EmbeddedRuntime`,
+`LocalServer`, `FastAction`, `VoiceInput`, `PhoneAgent`. The runtime's own log is `llama.log` in the app's files folder.
+They contain stage names and timings, not what you said.

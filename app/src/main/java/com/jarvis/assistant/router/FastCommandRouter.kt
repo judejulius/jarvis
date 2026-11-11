@@ -46,6 +46,10 @@ object FastCommandRouter {
     private val DIAL_A = Regex("""^(?:call|dial|phone)\s+(\+?[\d\s]{6,18})(?: karo| kar do)?$""")
     private val DIAL_B = Regex("""^(\+?[\d\s]{6,18}) ko (?:call|phone|dial)(?: karo| kar do)?$""")
 
+    private val CALL_A = Regex("""^(?:make a call to|place a call to|give a call to|call|phone|ring|dial) (.+)$""")
+    private val CALL_B = Regex("""^(.+?) ko (?:call|phone|dial)(?: karo| kar do| lagao| laga do| kijiye| kar de)?$|^(.+?) ko (?:phone|call) (?:lagao|laga do|karo|kar do)$""")
+    private val NOT_A_NAME = setOf("me", "him", "her", "them", "us", "back", "again", "it", "someone", "somebody", "anyone", "a", "the", "number", "now", "later")
+
     private val PAGES = linkedMapOf(
         "wifi" to "wifi", "wi fi" to "wifi", "bluetooth" to "bluetooth", "battery" to "battery", "display" to "display",
         "brightness" to "display", "sound" to "sound", "location" to "location", "gps" to "location", "airplane" to "airplane",
@@ -56,7 +60,15 @@ object FastCommandRouter {
     private val TOGGLE_PAGES = setOf("wifi", "bluetooth", "airplane", "hotspot", "data", "location")
     private val TOGGLE_OK = setOf("turn", "switch", "on", "off", "enable", "disable", "the", "wifi", "wi", "fi", "bluetooth", "airplane", "flight", "mode", "hotspot", "mobile", "data", "location", "gps", "karo", "kar", "do", "chalu", "band", "shuru", "kholo")
 
+    private val RUNTIME_DOWNLOAD = Regex("""^(?:download|install|get|set up|setup) (?:the )?(?:offline|local|on device|ondevice) (?:model|ai|brain)$""")
+    private val RUNTIME_STATUS = Regex("""^(?:is )?(?:the )?(?:offline|local|on device|ondevice) (?:model|ai|brain) (?:status|running|ready|working)$|^(?:offline|local|on device|ondevice) (?:model|ai|brain) status$""")
+
     private val CAMERA = Regex("""^(?:open |launch |start )?(?:the )?camera(?: app)?(?: kholo| open karo| chalao| chalu karo)?$""")
+
+    private val YT_A = Regex("""^(?:open |launch |start )?youtube(?: app)? (?:and |then |aur )?(?:play|watch|chalao|bajao) (.+)$""")
+    private val YT_B = Regex("""^(?:play|watch) (.+?) (?:on|in|from) youtube$""")
+    private val YT_C = Regex("""^youtube (?:par|pe|me|mein) (.+?) (?:chalao|bajao|play karo|laga do|chala do|baja do|lagao|dikhao)$""")
+    private val YT_D = Regex("""^(.+?) youtube (?:par|pe|me|mein) (?:chalao|bajao|play karo|laga do|chala do|baja do|lagao)$|^(.+?) (?:chalao|bajao) youtube (?:par|pe|me|mein)$""")
 
     private val SEARCH_PREFIX_SITE = Regex("""^(youtube|google) (?:par|pe|me|mein|on|in) (?:search )?(.+?)(?: search karo| search kar do| dhundo| dhoondo)?$""")
     private val SEARCH_A = Regex("""^(?:search|google|look up|dhundo|dhoondo|khojo)(?: for)? (.+)$""")
@@ -79,11 +91,12 @@ object FastCommandRouter {
         if (t.isEmpty()) return null
         val words = t.split(' ')
         if (words.size > MAX_WORDS) return null
-        return mode(t) ?: language(t, words)
+        return mode(t) ?: language(t, words) ?: runtime(t)
             ?: press(t) ?: screenshotOrLock(t) ?: scroll(words)
             ?: volume(t, words) ?: flashlight(words) ?: media(words)
-            ?: query(t) ?: timerOrAlarm(t, words) ?: dial(t)
+            ?: query(t) ?: timerOrAlarm(t, words) ?: dial(t) ?: callContact(t)
             ?: settingsPage(t, words) ?: camera(t)
+            ?: playYouTube(t)
             ?: open(t)
             ?: search(t)
             ?: typeText(raw) ?: tap(t)
@@ -97,7 +110,7 @@ object FastCommandRouter {
         null -> null
         is FastCommand.OpenApp -> 800L
         is FastCommand.Press, is FastCommand.Scroll, is FastCommand.Flashlight, is FastCommand.Media,
-        is FastCommand.Ask, is FastCommand.SetMode, is FastCommand.SetLanguage, is FastCommand.OpenSettings,
+        is FastCommand.Ask, is FastCommand.SetMode, is FastCommand.SetLanguage, is FastCommand.OpenSettings, is FastCommand.RuntimeControl,
         FastCommand.Screenshot, FastCommand.LockScreen, FastCommand.OpenCamera,
         -> 600L
         is FastCommand.Volume -> 600L
@@ -110,6 +123,12 @@ object FastCommandRouter {
             t.startsWith("set ") || "karo" in t || "kar do" in t
         if (!explicit) return null
         return FastCommand.SetMode(if (m.groupValues[1].startsWith("auto")) AiMode.AUTO else AiMode.parse(m.groupValues[1]))
+    }
+
+    private fun runtime(t: String): FastCommand? = when {
+        RUNTIME_DOWNLOAD.matches(t) -> FastCommand.RuntimeControl(RuntimeAction.DOWNLOAD)
+        RUNTIME_STATUS.matches(t) -> FastCommand.RuntimeControl(RuntimeAction.STATUS)
+        else -> null
     }
 
     private fun language(t: String, words: List<String>): FastCommand? {
@@ -238,6 +257,15 @@ object FastCommandRouter {
         return if (number.count { it.isDigit() } >= 6) FastCommand.Dial(number) else null
     }
 
+    private fun callContact(t: String): FastCommand? {
+        val m = CALL_A.matchEntire(t) ?: CALL_B.matchEntire(t) ?: return null
+        val name = m.groupValues.drop(1).firstOrNull { it.isNotEmpty() }?.trim().orEmpty()
+        val nw = name.split(' ')
+        if (name.isEmpty() || nw.size > 3 || nw.first() in NOT_A_NAME || nw.first() == "me") return null
+        if (name.any { it.isDigit() }) return null
+        return FastCommand.CallContact(name)
+    }
+
     private fun settingsPage(t: String, words: List<String>): FastCommand? {
         if (words.size > 6) return null
         val page = PAGES.entries.firstOrNull { (k, _) -> " $t ".contains(" $k ") || " $t ".contains(" ${k}s ") }?.value ?: return null
@@ -250,6 +278,13 @@ object FastCommandRouter {
     }
 
     private fun camera(t: String): FastCommand? = if (CAMERA.matches(t)) FastCommand.OpenCamera else null
+
+    private fun playYouTube(t: String): FastCommand? {
+        val m = YT_A.matchEntire(t) ?: YT_B.matchEntire(t) ?: YT_C.matchEntire(t) ?: YT_D.matchEntire(t) ?: return null
+        val q = m.groupValues.drop(1).firstOrNull { it.isNotEmpty() }?.trim().orEmpty()
+        if (q.isEmpty() || q.split(' ').size > 8) return null
+        return FastCommand.PlayYouTube(q)
+    }
 
     private fun open(t: String): FastCommand? {
         val target = (OPEN_A.matchEntire(t) ?: OPEN_B.matchEntire(t))?.groupValues?.get(1)?.trim() ?: return null
