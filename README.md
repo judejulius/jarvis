@@ -34,6 +34,7 @@ Say *"Hey Jarvis, text Mum I'm on my way"* and Jarvis opens the app, finds the c
 - [First-time setup](#first-time-setup)
 - [AI providers](#ai-providers)
 - [How it works](#how-it-works)
+- [Voice speed](#voice-speed)
 - [Building from source](#building-from-source)
 - [Project structure](#project-structure)
 - [Privacy and safety](#privacy-and-safety)
@@ -60,6 +61,7 @@ Phone assistants can answer questions, but most of them can't use your apps for 
 - **One-breath commands.** "Hey Jarvis, turn on the flashlight" works without waiting for a prompt. If you pause after "Hey Jarvis", it asks "Yes?".
 - **Offline speech recognition** with a streaming Zipformer model. Quiet voices, like someone across the room, are boosted automatically. Google's recognizer is used only if you skip that download.
 - **Your choice of voice.** [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) runs on the phone with 11 voices (British and American), or stream a cloud voice from **OpenAI**, **ElevenLabs**, **Fish Audio** or any OpenAI-compatible server. If a cloud voice can't be reached, Jarvis falls back to Kokoro or the phone's own voice.
+- **A voice that keeps up with the conversation.** Kokoro starts speaking after the first clause of a reply and makes each next sentence while the current one plays, so there is no silence between them. It measures how fast your phone makes speech and adjusts to it. See [Voice speed](#voice-speed).
 - Jarvis uses the phone's echo cancellation and tells its own voice apart from yours, so it doesn't interrupt itself.
 
 ### Phone control
@@ -160,6 +162,27 @@ flowchart LR
 3. **Think.** The model gets the task, the screen and a set of tools: `tap`, `type_text`, `scroll`, `swipe`, `open_app`, `press_key`, `look_at_screen`, `ask_user`, `finish` and more. It picks one action.
 4. **Act.** Jarvis performs the action, reads the screen again and repeats until the model calls `finish`.
 5. **Reply.** The result is spoken aloud and shown on the task island.
+
+## Voice speed
+
+Kokoro is a large model, and on many phones it makes speech only about as fast as it plays. Jarvis is built around that, so a reply sounds continuous instead of stopping and starting.
+
+| | Before | Now |
+|---|---|---|
+| Wait before the second sentence of a streamed answer | 2.7 s | 0.2 s |
+| First sound, for a reply that opens with a long sentence | 9.2 s | 2.0 s |
+| Total silence inside that reply | 5.4 s | 2.1 s |
+
+Measured with the real Kokoro model (int8, 4 threads) on a desktop CPU where it makes speech about as fast as it plays, which is roughly a phone that only just keeps up. Times on a phone will differ.
+
+How it gets there:
+
+- **The next sentence is made while this one plays.** Speech is made on one thread and played on another. For a streamed answer, Jarvis hands Kokoro the sentence that comes next, so it is ready when the current one ends.
+- **Speech starts after the first clause.** A reply is cut into pieces. The first is at most 40 characters, cut at a comma where there is one, so the first sound doesn't wait for a whole sentence.
+- **Pieces fit the phone.** Kokoro times itself as it speaks. A piece is only as long as can be made before the speech already waiting runs out. On a fast phone pieces grow to 150 characters. On a phone that makes speech slower than it plays they stay at 60 or fewer, so the pauses that can't be avoided are short and mostly fall at commas and full stops.
+- **Lighter on modest phones.** The model runs on the phone's fast cores only (2 to 4 threads). On phones with 4 GB of memory or less it makes shorter pieces, which need less memory.
+
+After a voice preview, Settings tells you if Kokoro takes longer to make speech than to play it on your phone. If it does, a cloud voice or the phone's own voice won't pause.
 
 ## Building from source
 
