@@ -196,6 +196,9 @@ app/src/main/java/com/jarvis/assistant/
 ├── voice/
 │   ├── VoiceInput.kt         # microphone, wake word and offline speech recognition
 │   ├── Kokoro.kt             # on-device neural voice
+│   ├── SpeechChunks.kt       # cuts text into short pieces so speech starts sooner
+│   ├── SpeechPacer.kt        # sizes each piece to how fast this phone makes speech
+│   ├── Cpu.kt                # how many threads the voice model uses (the phone's fast cores)
 │   ├── CloudVoice.kt         # OpenAI, ElevenLabs, Fish Audio and OpenAI-compatible voices, streamed
 │   ├── AudioOut.kt           # shared speaker output, interruption and loudness for the island
 │   ├── Voice.kt, SystemVoice.kt

@@ -51,10 +51,12 @@ class SentenceChunker(private val minLength: Int = 24, private val maxLength: In
 
 /**
  * Speaks streamed replies one sentence after another. [runOnMain] runs a block on the thread that talks to the voice;
- * [speak] speaks one piece and calls back when it is finished; [stale] says the task was replaced or cancelled.
+ * [speak] speaks one piece and calls back when it is finished. While a piece is being spoken, [prepare] is told
+ * which piece comes next, so the voice can make it meanwhile and there is no silence between the two.
  */
 class ReplyStreamer(
     private val runOnMain: (() -> Unit) -> Unit,
+    private val prepare: (String) -> Unit = {},
     private val speak: (String, () -> Unit) -> Unit,
 ) {
     private val chunker = SentenceChunker()
@@ -89,13 +91,28 @@ class ReplyStreamer(
         done = null
     }
 
+    private var preparedPiece: String? = null
+
+    /** Tells the voice what comes after the piece being spoken, once per piece. */
+    private fun prepareNext() {
+        val next = queue.firstOrNull() ?: return
+        if (!speaking || cancelled || next === preparedPiece) return
+        preparedPiece = next
+        prepare(next)
+    }
+
     private fun pump() {
-        if (cancelled || speaking) return
+        if (cancelled) return
+        if (speaking) {
+            prepareNext()
+            return
+        }
         val next = queue.removeFirstOrNull()
         if (next != null) {
             speaking = true
             spoken++
             speak(next) { speaking = false; pump() }
+            prepareNext() // after speak, which drops anything prepared earlier
             return
         }
         if (finished) {

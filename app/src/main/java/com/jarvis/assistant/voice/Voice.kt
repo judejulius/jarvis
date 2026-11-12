@@ -61,11 +61,21 @@ class Speaker(context: Context) {
         }
     }
 
+    /**
+     * Says that [text] will be spoken straight after the current speech, so the voice can make it
+     * meanwhile. Only Kokoro uses this; the other voices start quickly enough without it.
+     */
+    fun prepare(text: String) {
+        if (cloudConfig() == null && kokoroReady && settings.voiceEngine != "system") {
+            Kokoro.prepare(app, text, settings.kokoroSpeaker, settings.voiceSpeed)
+        }
+    }
+
     /** Load the voice now so the next reply starts without delay. */
     fun warmUp() { if (usingKokoro) Kokoro.warmUp(app) }
 
     fun stop() {
-        AudioOut.stop()
+        Kokoro.stop() // stops the shared speaker output, whichever voice is using it
         if (usedCloud) cloud.stop()
         if (usedSystem) system.stop()
     }

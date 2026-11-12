@@ -16,6 +16,14 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - The on-phone model is warmed up the moment "Hey Jarvis" is heard, and the fixed part of its prompt is cacheable.
 - Per-stage latency log (`JarvisLatency`, stage names and milliseconds only).
 
+### Changed (Kokoro voice speed)
+- **No silence between the sentences of a streamed answer.** Each sentence used to be made only after the one before it had finished playing, so every sentence was followed by a silence as long as it took to make the next. Kokoro now makes speech on one thread and plays it on another, and the streamer tells it which sentence comes next, so that sentence is made while the current one plays. Measured with the real model on a desktop CPU where Kokoro is about as fast as its own speech, the wait before the second sentence fell from 2.7 s to 0.2 s.
+- **Speech starts after the first clause, not the first sentence.** Text is cut into pieces (`SpeechChunks`): the first is at most 40 characters, cut at a comma where there is one. For a reply that opens with a long sentence, the first sound came after 2.0 s instead of 9.2 s in the same measurement.
+- **Pieces are sized to the phone's speed** (`SpeechPacer`). Kokoro measures how long it takes to make speech on this phone, and a piece is only as long as can be made before the speech already waiting runs out. On a fast phone pieces grow to 150 characters; on a phone that makes speech slower than it plays they stay at 60 or fewer, so the pauses that can't be avoided are short and mostly fall at commas and full stops.
+- **One thread per fast core** (between 2 and 4) instead of half of all cores. On phones with two fast cores and six slow ones, the two extra threads ran on slow cores and held the fast ones back. Not yet measured on a phone.
+- On phones with 4 GB of memory or less, Kokoro makes pieces of at most 90 characters; its memory use grows with the length of a piece (about 440 MB at 150 characters, 400 MB at 100).
+- Every utterance logs its time to first sound (`Kokoro: timing firstAudio=...`) and how fast speech was made. After a voice preview, Settings says so if Kokoro takes longer to make speech than to play it on this phone.
+
 ### Added (second round)
 - **On-device model runtime built into the app**: `llama-server` ships inside the APK (built by GitHub Actions), runs as a supervised child process on `127.0.0.1:18080` behind a random API key, restarts after a crash or hang, and is stopped when idle or when Android is short of memory. The model downloads once (resumable, storage-checked, size/GGUF/SHA-256 verified). Termux is now optional.
 - **Calling by contact name** with contact lookup (family words, Hindi names), "which one?" questions for ambiguous names, confirmation before dialling, and honest results.

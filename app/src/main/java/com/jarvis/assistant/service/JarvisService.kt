@@ -483,7 +483,7 @@ class JarvisService : Service() {
                 if (isStale(id)) session.cancel()
                 // Speak the answer sentence by sentence while it is still being written.
                 val streamer = if (settings.streamReplies) {
-                    ReplyStreamer({ run -> main.post { run() } }) { text, done ->
+                    ReplyStreamer({ run -> main.post { run() } }, prepare = { speaker.prepare(it) }) { text, done ->
                         cancelAck() // the answer has started: no acknowledgement over it
                         trace.mark("firstSpeech")
                         say(text, interruptible = true, then = done)

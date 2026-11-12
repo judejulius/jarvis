@@ -16,6 +16,9 @@ import org.robolectric.Robolectric
 import org.robolectric.shadows.ShadowAudioRecord
 import com.jarvis.assistant.voice.ModelDownloader
 import com.jarvis.assistant.voice.Speaker
+import com.jarvis.assistant.voice.SpeechPacer
+import com.jarvis.assistant.voice.VoiceSpeed
+import com.jarvis.assistant.voice.makePaced
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
@@ -225,6 +228,105 @@ class RealEngineTest {
         speaker.speak("Stop.") { secondDone = true }
         assertTrue(waitFor(30_000) { secondDone })
         assertFalse("interrupted speech doesn't report done", firstDone)
+    }
+
+    @Test
+    fun theNextSentenceOfAStreamedReplyIsMadeWhileTheCurrentOnePlays() {
+        installAll()
+        val speaker = Speaker(ctx)
+        val first = "I have checked your calendar and you have three meetings today."
+        val second = "The first one is at nine with the design team in the main office."
+        fun speakAndTime(text: String, during: () -> Unit = {}): Long {
+            var done = false
+            val t0 = System.currentTimeMillis()
+            speaker.speak(text) { done = true }
+            during()
+            assertTrue("spoke: $text", waitFor(60_000) { done })
+            return System.currentTimeMillis() - t0
+        }
+        fun audioMs() = Kokoro.lastSamplesPlayed * 1000 / Kokoro.SAMPLE_RATE
+
+        // Before: the second sentence is only started once the first has finished, so it is made in silence.
+        speakAndTime(first)
+        val unpreparedMs = speakAndTime(second)
+        val unpreparedWait = unpreparedMs - audioMs()
+
+        // Now: it is made while the first plays, and starts at once.
+        speakAndTime(first) { speaker.prepare(second) }
+        val preparedMs = speakAndTime(second)
+        val preparedWait = preparedMs - audioMs()
+
+        println("KOKORO second sentence: ${unpreparedWait} ms of waiting when made after the first, ${preparedWait} ms when made during it")
+        assertTrue("no error: ${Kokoro.lastError}", Kokoro.lastError == null)
+        assertTrue("the whole sentence was played", audioMs() > 2500)
+        // How much sooner depends on the computer: where Kokoro is slower than its own speech, the second sentence can't be ready in time.
+        assertTrue("starts sooner: $unpreparedWait ms before, $preparedWait ms now", preparedWait < unpreparedWait - 500)
+
+        // Something else spoken instead drops what was made ahead, and speech still works.
+        speakAndTime(first) { speaker.prepare(second) }
+        speakAndTime("Never mind, that is everything for now.")
+        assertTrue(audioMs() > 1000)
+        assertTrue("no error: ${Kokoro.lastError}", Kokoro.lastError == null)
+    }
+
+    @Test
+    fun pacedPiecesLeaveShorterSilencesInLongSentencesThanFixedPieces() {
+        installAll()
+        // Long sentences, as a model's summary of a task often has. On this computer Kokoro makes speech
+        // about as fast as it plays, like a phone that only just keeps up.
+        val reply = "I have checked your calendar and you have three meetings today, the first is at nine with the design team in the main office, " +
+            "the second is a lunch with Sarah at noon, and the last is a call with the client at four. " +
+            "I also looked at the traffic on your usual route and it is heavier than normal this morning, so leaving ten minutes earlier would be sensible."
+        tts.generate("Ready.", 5, 1f) // load the model first, so neither run pays for it
+
+        // Before: the whole reply was handed to the voice, which plays each sentence from the thread that makes it.
+        val before = RealtimeSpeaker()
+        tts.generateWithCallback(reply, 5, 1f, Streamed { before.write(it); true })
+        before.finish()
+
+        // Now: paced pieces, made on one thread while another plays them.
+        val after = RealtimeSpeaker()
+        val queue = java.util.concurrent.LinkedBlockingQueue<FloatArray>()
+        val end = FloatArray(0)
+        val player = Thread { while (true) { val c = queue.take(); if (c === end) break; after.write(c) }; after.finish() }.apply { start() }
+        val speed = VoiceSpeed()
+        val pacer = SpeechPacer(speed, 40, 150).also { it.startPlaying() }
+        makePaced(reply, pacer, Kokoro.SAMPLE_RATE, out = { queue += it; true }) { piece, emit -> tts.generateWithCallback(piece, 5, 1f, Streamed(emit)) }
+        queue += end
+        player.join()
+
+        println("KOKORO whole reply:  first sound ${before.firstSoundAt} ms, longest silence ${before.longestSilenceMs} ms, all silence ${before.silenceMs} ms, done ${before.doneAt} ms")
+        println("KOKORO paced pieces: first sound ${after.firstSoundAt} ms, longest silence ${after.longestSilenceMs} ms, all silence ${after.silenceMs} ms, done ${after.doneAt} ms, speed ${speed.realTimeFactor}")
+        assertTrue("starts sooner: ${before.firstSoundAt} ms before, ${after.firstSoundAt} ms now", after.firstSoundAt < before.firstSoundAt)
+        assertTrue("less silence: ${before.silenceMs} ms before, ${after.silenceMs} ms now", after.silenceMs < before.silenceMs)
+    }
+
+    /** A speaker that plays in real time, like an AudioTrack: a write returns when its audio is almost over. */
+    private class RealtimeSpeaker {
+        private val bufferMs = 250L
+        private var endAt = 0L
+        var silenceMs = 0L
+        var longestSilenceMs = 0L
+        var firstSoundAt = 0L
+        var doneAt = 0L
+        private val started = System.currentTimeMillis()
+        fun write(samples: FloatArray) {
+            val now = System.currentTimeMillis()
+            if (endAt == 0L) firstSoundAt = now - started
+            else if (now > endAt) { silenceMs += now - endAt; longestSilenceMs = maxOf(longestSilenceMs, now - endAt) }
+            endAt = maxOf(now, endAt) + samples.size * 1000L / Kokoro.SAMPLE_RATE
+            val wake = endAt - bufferMs
+            if (wake > now) Thread.sleep(wake - now)
+        }
+        fun finish() {
+            val wait = endAt - System.currentTimeMillis()
+            if (wait > 0) Thread.sleep(wait)
+            doneAt = System.currentTimeMillis() - started
+        }
+    }
+
+    private class Streamed(private val onChunk: (FloatArray) -> Boolean) : (FloatArray) -> Int {
+        override fun invoke(samples: FloatArray): Int = if (onChunk(samples)) 1 else 0
     }
 
     // ---- Conversation ----

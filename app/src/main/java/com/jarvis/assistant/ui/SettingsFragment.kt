@@ -175,8 +175,14 @@ class SettingsFragment : Fragment() {
                 it.previewButton.text = "Preview voice"
                 // If the voice had a problem, say so here rather than failing silently.
                 val error = speaker.lastError
-                it.voiceError.visibility = if (error != null) View.VISIBLE else View.GONE
-                it.voiceError.text = if (cloud != null) "$error\nPlayed the backup voice instead." else "Kokoro problem: $error"
+                // A voice that can't keep up with its own speech has to pause; say why.
+                val factor = Kokoro.realTimeFactor?.takeIf { cloud == null && error == null && settings.voiceEngine == "kokoro" && it > 1.1f }
+                it.voiceError.visibility = if (error != null || factor != null) View.VISIBLE else View.GONE
+                it.voiceError.text = when {
+                    factor != null -> "On this phone Kokoro takes %.1f seconds to make each second of speech, so it pauses between phrases. A cloud voice or the phone's own voice won't pause.".format(factor)
+                    cloud != null -> "$error\nPlayed the backup voice instead."
+                    else -> "Kokoro problem: $error"
+                }
             }
         }
     }

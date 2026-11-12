@@ -176,7 +176,7 @@ flowchart TD
 A wake word while a task runs only opens the microphone: the task is replaced when a *command* is heard, not by a stray detection. A reply that arrives while the user is speaking is held, then spoken or dropped if a new command follows.
 
 ## Streamed speech
-`OpenAiCompatibleSession` streams plain chat (`stream: true`); `SseParser` reads each line; `SentenceChunker` forms whole sentences (at least 24 characters, cut at `. ! ? ।`, not at decimals or "Dr."); `ReplyStreamer` speaks them one after another through the normal `say()`; the text of each sentence is shown as it is spoken. Replies that use tools (phone control) are not streamed.
+`OpenAiCompatibleSession` streams plain chat (`stream: true`); `SseParser` reads each line; `SentenceChunker` forms whole sentences (at least 24 characters, cut at `. ! ? ।`, not at decimals or "Dr."); `ReplyStreamer` speaks them one after another through the normal `say()`; the text of each sentence is shown as it is spoken. While one sentence is spoken, the streamer hands the next to `Speaker.prepare()`, and Kokoro makes it meanwhile, so it starts without a silence. Replies that use tools (phone control) are not streamed.
 
 ## Wake word: what the code audit found
 - The keyword tokens in `VoiceInput` (`▁HE Y ▁JA R VI S`) were checked against the model's real `bpe.model`: they are the correct tokenization. No change needed there.

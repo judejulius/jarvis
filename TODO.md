@@ -5,12 +5,13 @@ how long it takes from "Jarvis has something to say" to "sound comes out of the 
 
 ## 1. Measure first
 
-- [ ] **Log time-to-first-audio for every utterance.** Record the time in `Speaker.speak()` and the time of
+- [x] **Log time-to-first-audio for every utterance.** (Done for Kokoro: `Kokoro: timing firstAudio=...`. Cloud and system voices still to do.)
+- [ ] (original note) Record the time in `Speaker.speak()` and the time of
       the first `AudioOut.Playback.write()` that actually plays samples; log the difference with the engine
       name (kokoro / cloud id / system) and whether it was a cache hit. Without this, every item below is a guess.
-- [ ] Log Kokoro's per-sentence generation time vs. the sentence's audio length (real-time factor), so we know
+- [x] (Done: `Kokoro: made N chars in ...`, and `Kokoro.realTimeFactor`.) Log Kokoro's per-sentence generation time vs. the sentence's audio length (real-time factor), so we know
       whether the phone generates faster than it plays.
-- [ ] Add a debug line in Settings showing the last few latencies (next to `lastError`).
+- [ ] (Partly done: after a preview, Settings says when Kokoro is slower than its own speech.) Add a debug line in Settings showing the last few latencies (next to `lastError`).
 
 ## 2. Kokoro (on-device) — biggest wins
 
@@ -24,11 +25,13 @@ how long it takes from "Jarvis has something to say" to "sound comes out of the 
 - [ ] (original note)  Only `"Yes?"`, `"On it."` and the unlock prompt are pre-rendered
       (`Kokoro.STOCK_PHRASES`). Add the other fixed lines Jarvis says, e.g. `"Sorry, I didn't catch that."`,
       `"Okay."`, `"Done."`.
-- [ ] **Shorter first chunk.** Generation is already streamed sentence by sentence (`maxNumSentences = 1`), but a
+- [x] **Shorter first chunk.** (Done: `SpeechChunks` and `SpeechPacer`; the first piece is at most 40 characters.)
+- [ ] (original note) Generation is already streamed sentence by sentence (`maxNumSentences = 1`), but a
       long first sentence still delays the first sound. Split the first sentence at a comma/clause boundary so the
       first chunk is short, then stream the rest normally.
-- [ ] **Benchmark `numThreads`.** It's `cores / 2` clamped to 2..4. Try 2, 4 and 6 on a real phone with the
+- [ ] **Benchmark `numThreads`.** (Now one thread per fast core, 2..4, in `Cpu.kt`. Still needs checking on a real phone.) It's `cores / 2` clamped to 2..4. Try 2, 4 and 6 on a real phone with the
       latency logging above and pick what's fastest (big.LITTLE cores make more threads not always better).
+- [ ] **Try the full-precision model.** On a desktop CPU the int8 model spends 87% of its time in quantized convolutions (`ConvInteger`) and the float model (`kokoro-en-v0_19`, 330 MB, about 200 MB more memory) is 2.3 times faster. Phone processors may differ: read `Kokoro: made ... x its length` from logcat on a phone before deciding.
 - [ ] Try running the int8 model with the XNNPACK / NNAPI provider in sherpa-onnx and compare.
 - [ ] Faster phrase cache loading: `readPcm()` reads one float at a time through `DataInputStream`. Read the file
       into a `ByteBuffer` and copy with `asFloatBuffer()` instead. Also key the cache on something stronger than

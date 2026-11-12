@@ -82,6 +82,26 @@ class SentenceChunkerTest {
         assertEquals(2, streamer.spoken)
     }
 
+    @Test fun theNextPieceIsPreparedWhileTheCurrentOneIsSpoken() {
+        val events = ArrayList<String>()
+        var finishSpeaking: (() -> Unit)? = null
+        val streamer = ReplyStreamer({ it() }, prepare = { events += "prepare: $it" }) { text, done -> events += "speak: $text"; finishSpeaking = done }
+        streamer.onDelta("The capital of France is Paris. ")
+        assertEquals(listOf("speak: The capital of France is Paris."), events) // nothing to prepare yet
+        streamer.onDelta("It lies on the river Seine. It is a very large city indeed. ")
+        streamer.onDelta("And more text is still arriving")
+        // Only the piece that comes next is prepared, and only once.
+        assertEquals(listOf("speak: The capital of France is Paris.", "prepare: It lies on the river Seine."), events)
+        finishSpeaking!!.invoke()
+        assertEquals(
+            listOf("speak: It lies on the river Seine.", "prepare: It is a very large city indeed."),
+            events.drop(2),
+        )
+        streamer.cancel()
+        finishSpeaking!!.invoke()
+        assertEquals("nothing is prepared after a cancel", 4, events.size)
+    }
+
     @Test fun cancelDropsWhatIsLeft() {
         val spoken = ArrayList<String>()
         var finishSpeaking: (() -> Unit)? = null
