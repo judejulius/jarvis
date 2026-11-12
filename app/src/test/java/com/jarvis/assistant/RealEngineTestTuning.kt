@@ -33,6 +33,19 @@ import java.util.Random
  *   volume 1      no gain 18/18, 0 false   gain 18/18, 0 false
  *   volume 1/8    no gain 13/18, 1 false   gain 15/18, 1 false
  *   volume 1/20   no gain  7/18, 1 false   gain  7/18, 1 false
+ *
+ * Results (2026-11-12, the same 18 wake phrases and 36 sound-alikes, with [com.jarvis.assistant.voice.MicGain]).
+ * Kokoro's speech has an RMS of about 0.07; a phone's plain microphone gives about 0.008 for a normal voice at
+ * arm's length and 0.002 from across a room. No false alarms in any run.
+ *   volume   quiet room (hiss 0.0003)     noisier (hiss 0.0015)
+ *            no gain   gain               no gain   gain
+ *   1        17/18     17/18              17/18     16/18
+ *   1/8      14/18     16/18              12/18     16/18
+ *   1/20     13/18     17/18               8/18     12/18
+ *   1/40     11/18     17/18               3/18      3/18
+ *   1/80      4/18     12/18               0/18      0/18
+ * The earlier gain reacted over seconds and stopped at 8 times, so it did little for a short "Hey Jarvis".
+ *
  * Lowering the keyword thresholds ("high sensitivity") didn't help, so there is no such setting.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -128,10 +141,14 @@ class RealEngineTestTuning {
         val alikeAudio = voices.take(3).flatMap { v -> soundAlikes.map { say(it, v) } }
         println("TUNING wake utterances=${wakeAudio.size} sound-alikes=${alikeAudio.size}")
         for (gain in listOf(false, true)) {
-            for (scale in listOf(1f, 0.12f, 0.05f, 0.025f)) {
-                val hits = countWakes(script(wakeAudio, scale, 0.0015f), gain)
-                val falses = countWakes(script(alikeAudio, scale, 0.0015f), gain)
-                println("TUNING gain=$gain scale=$scale hits=$hits/${wakeAudio.size} falseAlarms=$falses/${alikeAudio.size}")
+            // Kokoro's speech has an RMS of about 0.07. A phone's plain microphone gives about 0.008 for a normal voice
+            // at arm's length and 0.002 from across a room, over a hiss of about 0.0003 in a quiet room.
+            for (scale in listOf(1f, 0.12f, 0.05f, 0.025f, 0.012f)) {
+                for (noise in listOf(0.0003f, 0.0015f)) {
+                    val hits = countWakes(script(wakeAudio, scale, noise), gain)
+                    val falses = countWakes(script(alikeAudio, scale, noise), gain)
+                    println("TUNING gain=$gain scale=$scale noise=$noise hits=$hits/${wakeAudio.size} falseAlarms=$falses/${alikeAudio.size}")
+                }
             }
         }
     }

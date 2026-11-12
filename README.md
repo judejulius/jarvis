@@ -218,6 +218,7 @@ app/src/main/java/com/jarvis/assistant/
 │   └── ScreenReader.kt                # screen → numbered element list
 ├── voice/
 │   ├── VoiceInput.kt         # microphone, wake word and offline speech recognition
+│   ├── MicGain.kt            # lifts a normal or quiet voice to the level the models expect
 │   ├── Kokoro.kt             # on-device neural voice
 │   ├── SpeechChunks.kt       # cuts text into short pieces so speech starts sooner
 │   ├── SpeechPacer.kt        # sizes each piece to how fast this phone makes speech

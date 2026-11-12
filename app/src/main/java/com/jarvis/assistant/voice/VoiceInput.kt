@@ -8,7 +8,6 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
-import kotlin.math.tanh
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -105,11 +104,10 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
     /** Jarvis's words to strip from the start of a command that began by talking over it. */
     private var echoToStrip: Set<String>? = null
 
-    // Automatic gain: quiet (far away) voices are lifted to a level the models handle well.
+    // Automatic gain: a normal or quiet voice is lifted to the level the models handle well. See [MicGain].
     @Volatile var autoGain = true
-    private var speechRms = TARGET_SPEECH_RMS
-    @Volatile var gain = 1f
-        private set
+    private val micGain = MicGain() // audio thread only
+    val gain get() = if (autoGain) micGain.gain else 1f
 
     // Command state, touched by the audio thread and main thread.
     private val lock = Any()
@@ -126,7 +124,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         private set
 
     // Background noise level, learned while waiting for the wake word, so "speech" adapts to the room.
-    @Volatile private var noiseFloor = 0.005f
+    private val noiseFloor get() = micGain.noiseFloor
     // Audio heard between the wake word and the command session starting, so no words are lost.
     private val afterWake = ArrayList<FloatArray>()
     private var capturing = false
@@ -390,8 +388,9 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
                 }
                 if (muted) { level = 0f; continue }
                 val samples = FloatArray(n) { pcm[it] / 32768f }
-                val rawLevel = rms(samples)
-                applyGain(samples, rawLevel)
+                // The room's noise is learnt only while waiting for the wake word, not from a command or Jarvis's own voice.
+                val waiting = speakingWords == null && synchronized(lock) { command == null && !capturing }
+                val rawLevel = if (autoGain) micGain.process(samples, learn = waiting) else rms(samples)
                 val level = rawLevel * gain
                 this.level = (level * 8).coerceAtMost(1f)
                 if (level > maxOf(MIN_SPEECH_LEVEL, noiseFloor * gain * 3)) speechSinceWake = true
@@ -414,7 +413,6 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
                     continue
                 }
                 if (capturing) continue
-                if (speakingWords == null) noiseFloor = if (rawLevel < 0.05f) noiseFloor * 0.95f + rawLevel * 0.05f else noiseFloor
                 recent.addLast(samples)
                 while (recent.size > 15) recent.removeFirst()
                 if (checkBargeIn(samples)) continue
@@ -518,22 +516,6 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         return false
     }
 
-    /** Lifts quiet speech (someone across the room) towards a steady level, without boosting room noise. */
-    private fun applyGain(x: FloatArray, raw: Float) {
-        if (!autoGain) return
-        // Learn how loud the user's voice is, but not from Jarvis's own voice while it speaks.
-        if (speakingWords == null) {
-            if (raw > noiseFloor * 4 && raw > 0.002f) speechRms = speechRms * 0.9f + raw * 0.1f // learn speech level
-            else speechRms += (TARGET_SPEECH_RMS - speechRms) * 0.002f                            // drift back when quiet
-        }
-        val wanted = (TARGET_SPEECH_RMS / speechRms.coerceAtLeast(1e-4f)).coerceIn(1f, MAX_GAIN)
-        val noiseCap = (MAX_NOISE_AFTER_GAIN / noiseFloor.coerceAtLeast(1e-5f)).coerceAtLeast(1f)
-        val target = minOf(wanted, noiseCap)
-        gain += (target - gain) * (if (target < gain) 0.5f else 0.08f) // turn down fast, up slowly
-        if (gain <= 1.01f) return
-        for (i in x.indices) x[i] = tanh(x[i] * gain) // soft limit: loud peaks never clip harshly
-    }
-
     private fun feedCommand(session: CommandSession, samples: FloatArray) {
         val asr = recognizer ?: return
         session.stream.acceptWaveform(samples, SAMPLE_RATE)
@@ -569,9 +551,6 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         private const val ECHO_HOLD_MS = 1200L
         private const val SILENT_READS = 50          // 5 s of exact zeros = the microphone is blocked
         private const val MAX_BLOCKED_RESTARTS = 2   // after that, assume the phone really outputs digital silence
-        private const val TARGET_SPEECH_RMS = 0.06f
-        private const val MAX_GAIN = 8f
-        private const val MAX_NOISE_AFTER_GAIN = 0.012f
 
         /** Words that mean "be quiet" when said over Jarvis. */
         val STOP_WORDS = setOf("stop", "wait", "cancel", "quiet", "enough", "pause", "hold", "shush")
@@ -622,11 +601,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         }
         private const val MIN_SPEECH_LEVEL = 0.02f
 
-        private fun rms(x: FloatArray): Float {
-            var sum = 0.0
-            for (v in x) sum += v * v
-            return Math.sqrt(sum / x.size.coerceAtLeast(1)).toFloat()
-        }
+        private fun rms(x: FloatArray) = MicGain.rms(x)
         private const val MAX_COMMAND_MS = 20_000L
 
         private val LEADING_YES = Regex("^(?i)yes[,.!?]*\\s+")

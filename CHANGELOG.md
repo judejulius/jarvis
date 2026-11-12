@@ -16,6 +16,11 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - The on-phone model is warmed up the moment "Hey Jarvis" is heard, and the fixed part of its prompt is cacheable.
 - Per-stage latency log (`JarvisLatency`, stage names and milliseconds only).
 
+### Fixed (hearing "Hey Jarvis" at a normal volume)
+- **"Hey Jarvis" no longer needs a raised voice.** Idle listening uses the phone's plain recognition microphone, which has no volume control of its own: a normal voice at arm's length arrives 20 to 30 dB quieter than the speech the wake word model was trained on. The app's own gain was meant to make up for that, but it took seconds to react and stopped at 8 times, so it did little for a phrase that lasts under a second. The new gain (`MicGain`) rests as high as the room's background noise allows, up to 32 times, so a quiet "Hey Jarvis" is lifted from its first sound, and it turns down at once when something loud arrives. The same gain feeds the command that follows.
+- Measured with the real wake word model on 18 synthetic "Hey Jarvis" phrases in a quiet room: 17 instead of 13 heard at 1/20 volume, 17 instead of 11 at 1/40, 12 instead of 4 at 1/80, and no false alarms on 36 sound-alike phrases at any volume. Not yet confirmed on a phone or with a real voice.
+- The background noise level is now learnt from the quietest moments only. Before, ordinary speech was counted as noise and raised it, which held the gain down.
+
 ### Changed (Kokoro voice speed)
 - **No silence between the sentences of a streamed answer.** Each sentence used to be made only after the one before it had finished playing, so every sentence was followed by a silence as long as it took to make the next. Kokoro now makes speech on one thread and plays it on another, and the streamer tells it which sentence comes next, so that sentence is made while the current one plays. Measured with the real model on a desktop CPU where Kokoro is about as fast as its own speech, the wait before the second sentence fell from 2.7 s to 0.2 s.
 - **Speech starts after the first clause, not the first sentence.** Text is cut into pieces (`SpeechChunks`): the first is at most 40 characters, cut at a comma where there is one. For a reply that opens with a long sentence, the first sound came after 2.0 s instead of 9.2 s in the same measurement.

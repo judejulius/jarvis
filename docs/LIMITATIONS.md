@@ -35,7 +35,7 @@
 - About 1 GB of RAM while loaded. It stops after 20 idle minutes and when Android asks apps to trim memory.
 
 **Wake word**
-- No claim of reliability is made. The change is a hypothesis-driven fix (see ARCHITECTURE). Screen-off behaviour depends on the phone's background-microphone policy. A synthetic-speech measurement was attempted but the text-to-speech front end could not be run in the sandbox, so there are no detection-rate numbers.
+- No claim of reliability is made. The change is a hypothesis-driven fix (see ARCHITECTURE). Screen-off behaviour depends on the phone's background-microphone policy. Detection rates exist for synthetic speech only (`RealEngineTestTuning`: Kokoro voices at several volumes over added hiss); there are none for a real voice on a phone. In a noisy room a quiet voice is still missed: gain cannot separate speech from noise that is as loud as it is.
 
 **Calls and contacts**
 - Names are matched in Latin and Devanagari scripts; nicknames you use that are not in the contact list are not guessed. A call is never placed on a guess (weak matches are always confirmed). Without the call permission Jarvis opens the dialer instead. "Call connected" is claimed only if the phone-state permission lets it see the call.
