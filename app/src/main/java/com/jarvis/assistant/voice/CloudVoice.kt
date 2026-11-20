@@ -12,6 +12,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Text-to-speech from a cloud provider (OpenAI, ElevenLabs, Fish Audio, or any OpenAI-compatible
@@ -39,31 +40,58 @@ class CloudVoice {
     fun speak(config: CloudVoiceConfig, text: String, speed: Float, onDone: () -> Unit, onFail: (String) -> Unit) {
         val ticket = AudioOut.interrupt()
         call?.cancel()
+        val (request, rate) = try {
+            request(config, text, speed)
+        } catch (e: Exception) {
+            main.post {
+                if (AudioOut.isCurrent(ticket)) {
+                    val error = "Couldn't request speech from ${name(config)}: ${e.message}"
+                    lastError = error
+                    onFail(error)
+                }
+            }
+            return
+        }
+        val c = http.newCall(request)
+        call = c
+        val waitingForAudio = AtomicBoolean(true)
+        val timeout = Runnable {
+            if (AudioOut.isCurrent(ticket) && waitingForAudio.compareAndSet(true, false)) {
+                c.cancel()
+                val error = "${name(config)} didn't send audio in time."
+                lastError = error
+                onFail(error)
+            }
+        }
+        main.postDelayed(timeout, FIRST_AUDIO_TIMEOUT_MS)
         worker.execute {
-            if (!AudioOut.isCurrent(ticket)) return@execute
             val failure = try {
-                val (request, rate) = request(config, text, speed)
-                val c = http.newCall(request).also { call = it }
+                if (!AudioOut.isCurrent(ticket) || c.isCanceled()) return@execute
                 c.execute().use { response ->
                     if (!response.isSuccessful) {
                         problem(config, response.code, response.body?.string().orEmpty())
+                    } else if (response.body?.source()?.request(2) != true) {
+                        "${name(config)} returned no audio."
                     } else {
+                        // One complete 16-bit PCM sample is buffered. The rest can arrive at playback speed.
+                        if (!waitingForAudio.compareAndSet(true, false) || !AudioOut.isCurrent(ticket)) return@execute
                         play(response.body!!.byteStream(), rate, ticket, c)
                         null
                     }
                 }
             } catch (e: Exception) {
-                if (!AudioOut.isCurrent(ticket)) return@execute // cancelled because we were interrupted
+                if (!AudioOut.isCurrent(ticket) || c.isCanceled()) return@execute
                 Log.w(TAG, "cloud voice failed", e)
                 "Couldn't reach ${name(config)}: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                waitingForAudio.set(false)
+                main.removeCallbacks(timeout)
             }
-            if (!AudioOut.isCurrent(ticket)) return@execute
-            if (failure != null) {
-                lastError = failure
-                main.post { onFail(failure) }
-            } else {
-                lastError = null
-                main.post(onDone)
+            main.post {
+                if (AudioOut.isCurrent(ticket) && !c.isCanceled()) {
+                    lastError = failure
+                    if (failure == null) onDone() else onFail(failure)
+                }
             }
         }
     }
@@ -155,6 +183,7 @@ class CloudVoice {
     private fun name(c: CloudVoiceConfig) = com.jarvis.assistant.CLOUD_VOICES.firstOrNull { it.id == c.id }?.name ?: c.id
 
     companion object {
+        private const val FIRST_AUDIO_TIMEOUT_MS = 1500L
         private const val TAG = "CloudVoice"
         /** How gpt-4o voices are asked to sound. */
         const val JARVIS_STYLE = "Speak like a calm, composed British butler: warm, clear and concise, with a hint of dry wit."

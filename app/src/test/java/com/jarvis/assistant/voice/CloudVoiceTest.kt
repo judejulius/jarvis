@@ -7,6 +7,7 @@ import com.jarvis.assistant.CloudVoiceConfig
 import com.jarvis.assistant.Settings
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
 import org.json.JSONObject
 import org.junit.After
@@ -124,6 +125,60 @@ class CloudVoiceTest {
         val (done, failed) = speak(CloudVoiceConfig("openai", "wrong", "gpt-4o-mini-tts", "onyx", url()))
         assertFalse(done)
         assertTrue(failed!!, "check the API key" in failed && "Incorrect API key" in failed)
+    }
+
+    @Test
+    fun stalledRequestFallsBackOnceEvenIfTheProviderNeverSendsHeaders() {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val voice = CloudVoice()
+        val config = CloudVoiceConfig("custom", "", "tts-1", "alloy", url())
+        val failures = mutableListOf<String>()
+        var completions = 0
+        voice.speak(config, "Hello.", 1f, { completions++ }) { failures += it }
+        assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1600))
+
+        assertEquals(1, failures.size)
+        assertTrue(failures.single().contains("didn't send audio"))
+        assertEquals(voice.lastError, failures.single())
+        // A fresh request can use the worker immediately after cancellation.
+        server.enqueue(MockResponse().setBody(pcm()))
+        voice.speak(config, "Next.", 1f, { completions++ }) { failures += it }
+        waitFor { completions > 0 || failures.size > 1 }
+        assertEquals(1, completions)
+        assertEquals(1, failures.size)
+        assertNull(voice.lastError)
+    }
+
+    @Test
+    fun oneByteIsNotEnoughToStartPlayback() {
+        server.enqueue(MockResponse().setBody(Buffer().writeByte(1)))
+        val (done, error) = speak(CloudVoiceConfig("custom", "", "tts-1", "alloy", url()))
+        assertFalse(done)
+        assertTrue(error.orEmpty().contains("returned no audio"))
+    }
+
+    @Test
+    fun slowStreamCanFinishAfterTheFirstAudioDeadline() {
+        server.enqueue(MockResponse().setBody(pcm()).throttleBody(4800, 500, TimeUnit.MILLISECONDS))
+        val (done, error) = speak(CloudVoiceConfig("custom", "", "tts-1", "alloy", url()))
+        assertNull(error)
+        assertTrue(done)
+        assertEquals(12000L, AudioOut.lastSamplesPlayed)
+    }
+
+    @Test
+    fun stoppingAStalledRequestSuppressesFallback() {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val voice = CloudVoice()
+        val config = CloudVoiceConfig("custom", "", "tts-1", "alloy", url())
+        var callbacks = 0
+        voice.speak(config, "Hello.", 1f, { callbacks++ }) { callbacks++ }
+        assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
+        voice.stop()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, callbacks)
+        assertNull(voice.lastError)
     }
 
     @Test

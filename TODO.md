@@ -39,9 +39,9 @@ how long it takes from "Jarvis has something to say" to "sound comes out of the 
 
 ## 3. Cloud voices
 
-- [ ] **Fall back quickly when the provider is slow.** Right now fallback only happens on an error, and
-      `connectTimeout` is 10 s. Add a time-to-first-byte budget (e.g. ~1.5 s): if no audio has arrived by then,
-      cancel and speak with Kokoro/system instead.
+- [x] **Fall back quickly when the provider is slow.** Jarvis gives the provider 1.5 seconds to send
+      the first complete audio sample, then cancels the request and speaks locally. Once audio starts,
+      the stream can play past the deadline.
 - [ ] **Pre-warm the connection.** `Speaker.warmUp()` does nothing for cloud voices. Open the TLS connection
       (cheap request to the provider's base URL) during `listen()` so the real request skips the handshake.
 - [ ] **Play stock phrases locally / from cache.** `"Yes?"` and `"On it."` currently go over the network every
@@ -66,4 +66,4 @@ how long it takes from "Jarvis has something to say" to "sound comes out of the 
 
 - [ ] Add a unit test for the first-chunk splitting logic.
 - [ ] Extend `RealEngineTest` to report Kokoro time-to-first-audio so regressions show up.
-- [ ] Test the cloud time-to-first-byte fallback in `CloudVoiceTest` with a mock server that stalls.
+- [x] Test the cloud first-audio deadline in `CloudVoiceTest` with a stalled provider and a slow stream.
