@@ -15,13 +15,13 @@ You need:
 
 - **JDK 17 or newer**
 - **Android SDK** with platform 35 and build-tools 35 (Android Studio installs these)
-- A 64-bit ARM Android phone with USB debugging on. The app is built for `arm64-v8a` only, so the standard x86 emulator won't run it. Add `"x86_64"` to `abiFilters` in `app/build.gradle.kts` locally if you need the emulator.
+- An Android device with USB debugging or an x86_64 emulator. Gradle builds APKs for arm64-v8a, armeabi-v7a and x86_64, plus a universal APK.
 
 ```bash
 git clone https://github.com/judejulius/jarvis.git
 cd jarvis
 ./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-universal-debug.apk
 ```
 
 The first build downloads the official sherpa-onnx Android library (about 50 MB) into `app/libs/` and checks its SHA-256. It's not stored in git.

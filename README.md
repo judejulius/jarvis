@@ -93,7 +93,7 @@ Phone assistants can answer questions, but most of them can't use your apps for 
 
 ### Requirements
 - Android 8.0 (API 26) or newer.
-- A 64-bit ARM phone (`arm64-v8a`). That's nearly every phone from the last several years.
+- An Android phone or emulator using `arm64-v8a`, `armeabi-v7a` (32-bit ARM), or `x86_64`. Choose the APK for your device, or use the universal APK if you are unsure.
 - About 300 MB of free space: the app plus 175 MB of voice models, downloaded in the app.
 - An API key for a cloud model, **or** a computer running LM Studio or Ollama.
 
@@ -192,7 +192,7 @@ You need **JDK 17+** and the **Android SDK** (API 35). Android Studio provides b
 git clone https://github.com/judejulius/jarvis.git
 cd jarvis
 ./gradlew assembleDebug        # the first build downloads sherpa-onnx (50 MB)
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-universal-debug.apk
 ```
 
 Run the tests:
@@ -260,7 +260,7 @@ Ideas we'd love help with:
 
 - [ ] More languages for the wake word, speech recognition and voice
 - [x] Custom wake words. In **Settings → Listening → Wake phrase**, add an English phrase or clear it to restore the default. “Hey Jarvis” and “Jarvis” also work with a custom phrase.
-- [ ] 32-bit ARM and x86_64 builds
+- [x] 32-bit ARM and x86_64 builds
 - [ ] Task history with replay of each step
 - [ ] Per-app tips that help the model (e.g. "In WhatsApp, the search icon is…")
 - [ ] Translations of the app interface

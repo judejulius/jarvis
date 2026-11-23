@@ -23,19 +23,25 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Cache on-device model runtime
+      - name: Restore on-device model runtimes
         id: llama-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: app/src/main/jniLibs/arm64-v8a/libllama_server.so
-          key: llama-server-${{ env.LLAMA_CPP_REF }}-${{ hashFiles('scripts/build-llama-android.sh') }}
+          path: app/src/main/jniLibs/*/libllama_server.so
+          key: llama-server-three-abis-${{ env.LLAMA_CPP_REF }}-${{ hashFiles('scripts/build-llama-android.sh') }}
 
-      # llama-server for arm64 is built from source once (then cached). If this step fails, the APK still builds; the app
-      # then works without the on-device runtime (Termux or cloud models).
-      - name: Build on-device model runtime (llama-server, arm64)
+      - name: Build on-device model runtimes
+        id: llama-build
         if: steps.llama-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: bash scripts/build-llama-android.sh
+
+      - name: Cache completed native builds
+        if: steps.llama-build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/*/libllama_server.so
+          key: ${{ steps.llama-cache.outputs.cache-primary-key }}
 
       - name: Run tests
         run: ./gradlew testDebugUnitTest
@@ -50,18 +56,26 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           JARVIS_KEYSTORE="$RUNNER_TEMP/release.jks" ./gradlew assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk "Jarvis-${GITHUB_REF_NAME}.apk"
+          python3 scripts/check-apk-abis.py release
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "app/build/outputs/apk/release/app-${abi}-release.apk" "Jarvis-${GITHUB_REF_NAME}-${abi}.apk"
+          done
+          cp app/build/outputs/apk/release/app-universal-release.apk "Jarvis-${GITHUB_REF_NAME}.apk"
 
       - name: Build debug APK (no signing key configured)
         if: ${{ env.KEYSTORE_BASE64 == '' }}
         run: |
           ./gradlew assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk "Jarvis-${GITHUB_REF_NAME}.apk"
+          python3 scripts/check-apk-abis.py debug
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "app/build/outputs/apk/debug/app-${abi}-debug.apk" "Jarvis-${GITHUB_REF_NAME}-${abi}.apk"
+          done
+          cp app/build/outputs/apk/debug/app-universal-debug.apk "Jarvis-${GITHUB_REF_NAME}.apk"
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "Jarvis-${GITHUB_REF_NAME}.apk" --title "Jarvis $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" Jarvis-"${GITHUB_REF_NAME}"*.apk --title "Jarvis $GITHUB_REF_NAME" --generate-notes
 
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}

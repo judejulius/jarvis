@@ -1,7 +1,6 @@
 package com.jarvis.assistant.runtime
 
 import android.content.Context
-import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import com.jarvis.assistant.Settings
@@ -50,7 +49,7 @@ class EmbeddedRuntime private constructor(context: Context) {
 
     fun binary(): File? = File(app.applicationInfo.nativeLibraryDir, RuntimeConfig.BINARY).takeIf { it.isFile }
 
-    fun isSupported(): Boolean = Build.SUPPORTED_64_BIT_ABIS.contains("arm64-v8a") && binary() != null
+    fun isSupported(): Boolean = binary() != null
 
     fun modelFile(): File = File(File(app.filesDir, "models"), RuntimeConfig.MODEL_FILE)
 

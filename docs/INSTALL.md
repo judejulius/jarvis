@@ -34,9 +34,9 @@ If `git am` stops, run `git am --abort` and use the full `project/` folder inste
 
 GitHub > Actions > the latest **CI** run:
 
-1. The first run **builds `llama-server` for arm64 from source** (about 10 to 25 minutes) and caches it; later runs reuse it.
-   If that step fails the run continues and the APK is built **without** the on-device runtime (Termux or cloud models are used).
-2. Artifacts: `jarvis-debug-apk` (uploaded before the tests run), `test-and-lint-reports`.
+1. The first run **builds `llama-server` for each supported ABI from source** and caches the binaries; later runs reuse it.
+   If a native build fails, its APK can still use a Termux or cloud model.
+2. Download `jarvis-debug-apk`, unzip it and choose the APK named for your device or the universal APK.
 
 ## 3. First start on the phone
 

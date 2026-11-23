@@ -16,9 +16,15 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        // sherpa-onnx ships large native libraries. Nearly every phone from the last
-        // several years is arm64; add "armeabi-v7a" (old 32-bit phones) or "x86_64" (emulator) if needed.
-        ndk { abiFilters += listOf("arm64-v8a") }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     // Release signing comes from environment variables (set by the release workflow from repository
@@ -72,6 +78,7 @@ android {
     }
     packaging {
         jniLibs {
+            excludes += "**/x86/*.so" // The speech AAR also contains 32-bit x86.
             useLegacyPackaging = true // compress native libraries: much smaller APK to sideload
         }
         resources {

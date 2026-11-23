@@ -28,3 +28,6 @@ app/libs/*.part
 
 # JVM crash logs
 hs_err_pid*.log
+
+# Native server executables compiled by scripts/build-llama-android.sh
+/app/src/main/jniLibs/*/libllama_server.so
