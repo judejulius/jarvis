@@ -148,9 +148,9 @@ class TaskIsland(private val service: AccessibilityService) {
 
         val heard = partial?.invoke().orEmpty()
         b.islandText.text = when {
-            mode == Mode.LISTENING -> heard.ifEmpty { "Listening…" }
+            mode == Mode.LISTENING -> heard.ifEmpty { service.getString(R.string.island_listening) }
             status.isNotEmpty() -> status
-            else -> task ?: "Working…"
+            else -> task ?: service.getString(R.string.island_working)
         }
 
         // Sound bars: your voice while listening, Jarvis's while speaking.
@@ -164,14 +164,14 @@ class TaskIsland(private val service: AccessibilityService) {
         }
 
         b.expState.text = when {
-            speaking -> "Speaking"
-            mode == Mode.LISTENING -> "Listening"
-            mode == Mode.WORKING -> "Working"
-            mode == Mode.DONE -> "Done"
-            else -> "Couldn't finish"
+            speaking -> service.getString(R.string.state_speaking)
+            mode == Mode.LISTENING -> service.getString(R.string.phase_listening)
+            mode == Mode.WORKING -> service.getString(R.string.phase_working)
+            mode == Mode.DONE -> service.getString(R.string.done)
+            else -> service.getString(R.string.state_failed)
         }
         b.expTask.text = when (mode) {
-            Mode.LISTENING -> heard.ifEmpty { if (task != null) status.ifEmpty { "Go ahead, I'm listening." } else "Go ahead, I'm listening." }
+            Mode.LISTENING -> heard.ifEmpty { if (task != null) status.ifEmpty { service.getString(R.string.go_ahead) } else service.getString(R.string.go_ahead) }
             else -> task ?: status
         }
         b.expStatus.text = if (mode == Mode.LISTENING) "" else status.takeIf { it != b.expTask.text }.orEmpty()
@@ -179,9 +179,9 @@ class TaskIsland(private val service: AccessibilityService) {
 
         // Buttons
         val stopLabel = when {
-            mode == Mode.LISTENING -> "Cancel"
-            mode == Mode.WORKING -> "Stop"
-            speaking -> "Stop talking"
+            mode == Mode.LISTENING -> service.getString(R.string.cancel)
+            mode == Mode.WORKING -> service.getString(R.string.stop)
+            speaking -> service.getString(R.string.stop_talking)
             else -> null
         }
         if (stopLabel != null) {
@@ -189,11 +189,11 @@ class TaskIsland(private val service: AccessibilityService) {
             b.expPrimary.setTextColor(if (mode == Mode.WORKING) service.color(R.color.danger) else 0xFFFFFFFF.toInt())
             b.expPrimary.setOnClickListener { onStop(); if (mode != Mode.WORKING) collapse() }
         } else {
-            b.expPrimary.text = "Dismiss"
+            b.expPrimary.setText(R.string.dismiss)
             b.expPrimary.setTextColor(0xFFFFFFFF.toInt())
             b.expPrimary.setOnClickListener { hide() }
         }
-        b.expSecondary.text = "Open Jarvis"
+        b.expSecondary.setText(R.string.open_jarvis)
         b.expSecondary.setOnClickListener { openApp() }
     }
 

@@ -28,27 +28,27 @@ object AssistantSection {
 
         val modeChips = view.findViewById<ChipGroup>(R.id.aiModeChips)
         val modeHint = view.findViewById<TextView>(R.id.aiModeHint)
-        modeChips.addChoice("Auto", AiMode.AUTO.name)
-        modeChips.addChoice("Online", AiMode.ONLINE.name)
-        modeChips.addChoice("Offline", AiMode.OFFLINE.name)
+        modeChips.addChoice(context.getString(R.string.mode_auto), AiMode.AUTO.name)
+        modeChips.addChoice(context.getString(R.string.mode_online), AiMode.ONLINE.name)
+        modeChips.addChoice(context.getString(R.string.mode_offline), AiMode.OFFLINE.name)
         modeChips.select(settings.aiMode.name)
-        modeHint.text = modeText(settings.aiMode)
+        modeHint.setText(modeText(settings.aiMode))
         modeChips.setOnCheckedStateChangeListener { _, _ ->
             val mode = AiMode.parse(modeChips.selectedTag)
             settings.aiMode = mode
-            modeHint.text = modeText(mode)
+            modeHint.setText(modeText(mode))
         }
 
         val langChips = view.findViewById<ChipGroup>(R.id.speechLangChips)
         val langHint = view.findViewById<TextView>(R.id.speechLangHint)
-        langChips.addChoice("English · offline", "en")
-        langChips.addChoice("Hindi / Hinglish · Google", "hi")
+        langChips.addChoice(context.getString(R.string.lang_en), "en")
+        langChips.addChoice(context.getString(R.string.lang_hi), "hi")
         langChips.select(settings.speechLanguage)
-        langHint.text = langText(settings.speechLanguage)
+        langHint.setText(langText(settings.speechLanguage))
         langChips.setOnCheckedStateChangeListener { _, _ ->
             val lang = langChips.selectedTag ?: "en"
             settings.speechLanguage = lang
-            langHint.text = langText(lang)
+            langHint.setText(langText(lang))
         }
 
         view.findViewById<MaterialSwitch>(R.id.confirmSwitch).apply {
@@ -108,15 +108,17 @@ object AssistantSection {
 
     private fun showRuntime(rt: EmbeddedRuntime, text: TextView, button: MaterialButton) {
         val s = rt.status
+        val c = text.context
         val (line, label) = when {
-            !rt.isSupported() -> "This build has no on-device runtime. The model in Termux or your cloud models are used instead." to null
+            !rt.isSupported() -> c.getString(R.string.runtime_unsupported) to null
             s.phase == EmbeddedRuntime.Phase.DOWNLOADING ->
-                "Downloading the on-device model${if (s.percent >= 0) ": ${s.percent}%" else "…"} (${s.detail})" to "Pause download"
-            s.phase == EmbeddedRuntime.Phase.RUNNING -> "On-device model: running." to null
-            s.phase == EmbeddedRuntime.Phase.STARTING -> "On-device model: starting…" to null
-            s.phase == EmbeddedRuntime.Phase.FAILED -> "On-device model problem: ${s.detail}" to null
-            rt.hasModel() -> "On-device model: installed. It starts when needed and stops after a while to save memory." to null
-            else -> (s.detail.ifBlank { "The on-device model (about 1 GB) is not downloaded yet." }) to "Download on-device model"
+                (if (s.percent >= 0) c.getString(R.string.runtime_downloading_percent, s.percent, s.detail)
+                else c.getString(R.string.runtime_downloading, s.detail)) to c.getString(R.string.pause_download)
+            s.phase == EmbeddedRuntime.Phase.RUNNING -> c.getString(R.string.runtime_running) to null
+            s.phase == EmbeddedRuntime.Phase.STARTING -> c.getString(R.string.runtime_starting) to null
+            s.phase == EmbeddedRuntime.Phase.FAILED -> c.getString(R.string.runtime_failed, s.detail) to null
+            rt.hasModel() -> c.getString(R.string.runtime_installed) to null
+            else -> (s.detail.ifBlank { c.getString(R.string.runtime_not_downloaded) }) to c.getString(R.string.download_embedded_model)
         }
         text.text = line
         button.visibility = if (label == null) View.GONE else View.VISIBLE
@@ -126,30 +128,29 @@ object AssistantSection {
     private fun refreshStatus(context: Context, settings: Settings, view: View, status: TextView) {
         val profile = settings.modelsInOrder().firstOrNull { Endpoints.isLoopback(it.baseUrl) }
         if (profile == null) {
-            status.text = "No on-phone model is set up. Add one on the Models page, for example http://127.0.0.1:8080/v1."
+            status.setText(R.string.local_none)
             return
         }
-        status.text = "On-phone model: checking…"
+        status.setText(R.string.local_checking)
         val manager = LocalServerManager(context, settings)
         Thread({
             val state = manager.health(profile.baseUrl, 1000)
             val text = when (state) {
-                ServerHealth.State.OK -> "On-phone model (${profile.name}): running."
-                ServerHealth.State.LOADING -> "On-phone model (${profile.name}): loading…"
+                ServerHealth.State.OK -> context.getString(R.string.local_running, profile.name)
+                ServerHealth.State.LOADING -> context.getString(R.string.local_loading, profile.name)
                 ServerHealth.State.DOWN ->
-                    "On-phone model (${profile.name}): not running. Jarvis starts it through Termux when needed."
+                    context.getString(R.string.local_down, profile.name)
             }
             view.post { status.text = text }
         }, "jarvis-status").apply { isDaemon = true }.start()
     }
 
     private fun modeText(mode: AiMode) = when (mode) {
-        AiMode.AUTO -> "Short, simple questions use the model on your phone. Hard, current-events or Hindi questions use your cloud models when the internet works."
-        AiMode.ONLINE -> "Cloud models first, the on-phone model if the internet is down."
-        AiMode.OFFLINE -> "Only the on-phone model answers. Nothing leaves your phone."
+        AiMode.AUTO -> R.string.mode_auto_hint
+        AiMode.ONLINE -> R.string.mode_online_hint
+        AiMode.OFFLINE -> R.string.mode_offline_hint
     }
 
     private fun langText(lang: String) =
-        if (lang == "hi") "Uses Google speech recognition (needs the Google app; it may use the internet). Wake word still works offline. Replies are spoken in English."
-        else "Offline recognition on your phone. English only."
+        if (lang == "hi") R.string.lang_hi_hint else R.string.lang_en_hint
 }

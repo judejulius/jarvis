@@ -4,6 +4,7 @@ import android.app.Dialog
 import android.os.Bundle
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.DialogFragment
+import com.jarvis.assistant.R
 
 /** Reads the local event log. Replay controls only move the cursor through the saved steps. */
 class TaskReplayDialog : DialogFragment() {
@@ -16,10 +17,10 @@ class TaskReplayDialog : DialogFragment() {
         val id = args.getLong("id")
         val alert = AlertDialog.Builder(requireContext())
             .setTitle(args.getString("title"))
-            .setMessage("Loading steps…")
-            .setNegativeButton("Close", null)
-            .setNeutralButton("Previous", null)
-            .setPositiveButton("Next", null)
+            .setMessage(getString(R.string.loading_steps))
+            .setNegativeButton(R.string.close, null)
+            .setNeutralButton(R.string.previous, null)
+            .setPositiveButton(R.string.next, null)
             .create()
         alert.setOnShowListener {
             val previous = alert.getButton(AlertDialog.BUTTON_NEUTRAL)
@@ -33,9 +34,9 @@ class TaskReplayDialog : DialogFragment() {
                     val steps = result.getOrNull().orEmpty()
                     fun showStep() {
                         alert.setMessage(when {
-                            result.isFailure -> "Couldn’t load the recorded steps."
-                            steps.isEmpty() -> "No steps were recorded for this task."
-                            else -> "Step ${position + 1} of ${steps.size}\n\n${steps[position]}"
+                            result.isFailure -> alert.context.getString(R.string.steps_load_failed)
+                            steps.isEmpty() -> alert.context.getString(R.string.no_steps)
+                            else -> alert.context.getString(R.string.step_of, position + 1, steps.size, MemoryLabels.word(alert.context, steps[position]))
                         })
                         previous.isEnabled = position > 0
                         next.isEnabled = position < steps.lastIndex

@@ -1052,9 +1052,9 @@ class JarvisService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
-            .addAction(0, "Talk", action(ACTION_LISTEN, 1))
-            .addAction(0, "Stop task", action(ACTION_STOP_TASK, 2))
-            .addAction(0, "Turn off", action(ACTION_SHUTDOWN, 3))
+            .addAction(0, getString(R.string.talk), action(ACTION_LISTEN, 1))
+            .addAction(0, getString(R.string.notif_stop_task), action(ACTION_STOP_TASK, 2))
+            .addAction(0, getString(R.string.turn_off), action(ACTION_SHUTDOWN, 3))
             .build()
     }
 

@@ -30,7 +30,7 @@ class ModelEditActivity : AppCompatActivity() {
         settings = Settings(this)
         existing = intent.getStringExtra(EXTRA_ID)?.let { id -> settings.profiles().firstOrNull { it.id == id } }
 
-        ui.pageTitle.text = if (existing == null) "Add model" else "Edit model"
+        ui.pageTitle.text = getString(if (existing == null) R.string.add_model else R.string.edit_model)
         ui.delete.visibility = if (existing == null) View.GONE else View.VISIBLE
         ui.back.setOnClickListener { finish() }
         ui.delete.setOnClickListener { confirmDelete() }
@@ -38,7 +38,7 @@ class ModelEditActivity : AppCompatActivity() {
         ui.saveButton.setOnClickListener { save() }
 
         PROVIDERS.forEach { ui.providerChips.addChoice(it.label.substringBefore(" ("), it.id) }
-        efforts.forEach { ui.effortChips.addChoice(if (it == "xhigh") "X-High" else it.replaceFirstChar(Char::uppercase), it) }
+        efforts.forEach { ui.effortChips.addChoice(EFFORTS[it]?.let(::getString) ?: it.replaceFirstChar(Char::uppercase), it) }
 
         val start = existing
         if (start != null) {
@@ -80,9 +80,9 @@ class ModelEditActivity : AppCompatActivity() {
         // Cloud providers have a fixed address, so only local/custom servers show it.
         ui.baseUrlLayout.visibility = if (local) View.VISIBLE else View.GONE
         ui.apiKeyLayout.visibility = if (p.needsKey || p.id == "custom") View.VISIBLE else View.GONE
-        ui.apiKeyLayout.hint = if (p.needsKey) "API key" else "API key (optional)"
+        ui.apiKeyLayout.hint = getString(if (p.needsKey) R.string.api_key else R.string.api_key_optional)
         ui.effortSection.visibility = if (p.kind == ApiKind.ANTHROPIC) View.VISIBLE else View.GONE
-        ui.providerHint.text = HINTS[p.id] ?: ""
+        ui.providerHint.text = HINTS[p.id]?.let(::getString).orEmpty()
     }
 
     private fun current(): ModelProfile? {
@@ -90,8 +90,8 @@ class ModelEditActivity : AppCompatActivity() {
         ui.name.error = null
         val key = ui.apiKey.text.toString().trim()
         val model = ui.model.text.toString().trim()
-        if (preset.needsKey && key.isBlank()) { ui.apiKeyLayout.error = "Paste your API key"; return null }
-        if (model.isBlank()) { ui.model.error = "Enter the model ID"; return null }
+        if (preset.needsKey && key.isBlank()) { ui.apiKeyLayout.error = getString(R.string.paste_api_key); return null }
+        if (model.isBlank()) { ui.model.error = getString(R.string.enter_model_id); return null }
         return ModelProfile(
             id = existing?.id ?: java.util.UUID.randomUUID().toString(),
             name = ui.name.text.toString().trim().ifBlank { preset.label.substringBefore(" (") },
@@ -106,17 +106,17 @@ class ModelEditActivity : AppCompatActivity() {
     private fun test() {
         val profile = current() ?: return
         ui.testButton.isEnabled = false
-        ui.testButton.text = "Testing…"
+        ui.testButton.setText(R.string.testing)
         ui.testResult.visibility = View.GONE
         Thread {
             val result = runCatching { Llm.test(profile.toConfig()) }
             runOnUiThread {
                 ui.testButton.isEnabled = true
-                ui.testButton.text = "Test connection"
+                ui.testButton.setText(R.string.test_connection)
                 ui.testResult.visibility = View.VISIBLE
                 result.onSuccess {
                     ui.testResult.setTextColor(color(R.color.ok))
-                    ui.testResult.text = "✓ Connected. ${profile.name} replied: “${it.take(60)}”"
+                    ui.testResult.text = getString(R.string.test_ok, profile.name, it.take(60))
                 }.onFailure {
                     ui.testResult.setTextColor(color(R.color.danger))
                     ui.testResult.text = "✗ ${it.message?.take(300) ?: it.javaClass.simpleName}"
@@ -135,10 +135,10 @@ class ModelEditActivity : AppCompatActivity() {
     private fun confirmDelete() {
         val profile = existing ?: return
         MaterialAlertDialogBuilder(this)
-            .setTitle("Delete ${profile.name}?")
-            .setMessage("Jarvis will stop using this model.")
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Delete") { _, _ ->
+            .setTitle(getString(R.string.delete_model_title, profile.name))
+            .setMessage(R.string.delete_model_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.delete) { _, _ ->
                 settings.deleteProfile(profile.id)
                 finish()
             }
@@ -147,15 +147,19 @@ class ModelEditActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_ID = "id"
+        private val EFFORTS = mapOf(
+            "low" to R.string.effort_low, "medium" to R.string.effort_medium, "high" to R.string.effort_high,
+            "xhigh" to R.string.effort_xhigh, "max" to R.string.effort_max,
+        )
         private val HINTS = mapOf(
-            "anthropic" to "Get an API key at console.anthropic.com → API Keys. Low effort makes phone tasks noticeably faster.",
-            "openai" to "Get an API key at platform.openai.com → API keys. Use any model that supports tool calling.",
-            "lmstudio" to "On your computer: open LM Studio → Developer → start the server and turn on \"Serve on Local Network\". Enter your computer's IP address below and load a model that supports tool calling (e.g. Qwen).",
-            "ollama" to "On your computer, start Ollama with OLLAMA_HOST=0.0.0.0 so the phone can reach it, then enter your computer's IP address below. Use a model that supports tool calling.",
-            "openrouter" to "Get an API key at openrouter.ai/keys. Use any model ID listed on the site.",
-            "gemini" to "Get an API key at aistudio.google.com → Get API key.",
-            "groq" to "Get an API key at console.groq.com/keys.",
-            "custom" to "Any server with an OpenAI-compatible /chat/completions endpoint and tool calling.",
+            "anthropic" to R.string.help_anthropic,
+            "openai" to R.string.help_openai,
+            "lmstudio" to R.string.help_lmstudio,
+            "ollama" to R.string.help_ollama,
+            "openrouter" to R.string.help_openrouter,
+            "gemini" to R.string.help_gemini,
+            "groq" to R.string.help_groq,
+            "custom" to R.string.help_custom,
         )
     }
 }

@@ -45,7 +45,7 @@ class HomeFragment : Fragment() {
                 android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
                     .putExtra(android.content.Intent.EXTRA_SUBJECT, "Jarvis crash report")
                     .putExtra(android.content.Intent.EXTRA_TEXT, report),
-                "Share crash report",
+                getString(R.string.crash_share_title),
             ))
             CrashReporter.dismiss(requireContext())
             refresh()
@@ -80,7 +80,7 @@ class HomeFragment : Fragment() {
 
     private fun refresh() {
         val ctx = requireContext()
-        ui.wakeExample.text = "Try “${settings.wakePromptPhrase}, text Mum I’m on my way”"
+        ui.wakeExample.text = getString(R.string.wake_example, settings.wakePromptPhrase)
         val running = JarvisService.running
         val phase = if (running) JarvisService.phase else Phase.OFF
         ui.reactor.mode = when (phase) {
@@ -90,18 +90,18 @@ class HomeFragment : Fragment() {
             Phase.WORKING -> ArcReactorView.Mode.WORKING
         }
         ui.statusLabel.text = when (phase) {
-            Phase.OFF -> "Off"
-            Phase.IDLE -> "Ready"
-            Phase.LISTENING -> "Listening"
-            Phase.WORKING -> "Working"
+            Phase.OFF -> getString(R.string.phase_off)
+            Phase.IDLE -> getString(R.string.phase_ready)
+            Phase.LISTENING -> getString(R.string.phase_listening)
+            Phase.WORKING -> getString(R.string.phase_working)
         }
-        ui.statusText.text = if (running) JarvisService.status else "Turn Jarvis on to start listening"
+        ui.statusText.text = if (running) JarvisService.status else getString(R.string.home_off_status)
         val last = JarvisService.lastResult
         ui.lastResult.visibility = if (last != null && phase != Phase.WORKING) View.VISIBLE else View.GONE
-        ui.lastResult.text = "Last task: $last"
+        ui.lastResult.text = getString(R.string.last_task, last)
         ui.abortButton.visibility = if (phase == Phase.WORKING) View.VISIBLE else View.GONE
 
-        ui.powerButton.text = if (running) "Turn off" else "Turn on"
+        ui.powerButton.text = getString(if (running) R.string.turn_off else R.string.turn_on)
         // Primary button when off; quiet outlined button when on.
         ui.powerButton.backgroundTintList = ColorStateList.valueOf(ctx.color(if (running) R.color.surface_high else R.color.accent))
         val fg = ctx.color(if (running) R.color.text else R.color.on_accent)
@@ -111,12 +111,12 @@ class HomeFragment : Fragment() {
         ui.crashCard.visibility = if (CrashReporter.pending(ctx) != null) View.VISIBLE else View.GONE
 
         val primary = settings.primary()
-        ui.modelPill.text = primary?.name ?: "Add a model"
+        ui.modelPill.text = primary?.name ?: getString(R.string.add_a_model)
 
-        val missing = Setup.remaining(ctx).filter { it.required }.map { it.title.lowercase() } +
-            (if (primary == null) listOf("an AI model") else emptyList())
+        val missing = Setup.remaining(ctx).filter { it.required }.map { getString(it.title).lowercase() } +
+            (if (primary == null) listOf(getString(R.string.setup_needs_model)) else emptyList())
         ui.setupBanner.visibility = if (missing.isEmpty()) View.GONE else View.VISIBLE
-        ui.setupBannerText.text = "Jarvis still needs ${missing.joinToString(" and ")}. Tap to finish setup."
+        ui.setupBannerText.text = getString(R.string.setup_banner, missing.joinToString(", "))
     }
 
     private fun runTypedCommand() {
@@ -132,7 +132,7 @@ class HomeFragment : Fragment() {
     private fun startJarvis(action: String? = null, task: String? = null): Boolean {
         val started = JarvisService.start(requireContext(), action, task)
         if (!started) {
-            Toast.makeText(requireContext(), "Jarvis needs microphone permission first.", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), getString(R.string.needs_mic), Toast.LENGTH_LONG).show()
             requireActivity().requestPermissions(Setup.PERMISSIONS, 1)
         }
         return started

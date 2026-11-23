@@ -75,7 +75,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Jarvis closed unexpectedly last time. Sharing the report helps get it fixed."
+                    android:text="@string/crash_banner"
                     android:textColor="@color/text"
                     android:textSize="14sp"
                     tools:ignore="HardcodedText" />
@@ -92,7 +92,7 @@
                         style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Dismiss"
+                        android:text="@string/dismiss"
                         android:textColor="@color/text_dim"
                         tools:ignore="HardcodedText" />
 
@@ -102,7 +102,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="Share report"
+                        android:text="@string/crash_share"
                         tools:ignore="HardcodedText" />
                 </LinearLayout>
             </LinearLayout>
@@ -212,7 +212,7 @@
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginTop="10dp"
-            android:text="Abort current task"
+            android:text="@string/abort_task"
             android:textColor="@color/warn"
             android:visibility="gone"
             app:cornerRadius="12dp"
@@ -238,7 +238,7 @@
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:background="@null"
-                android:hint="Type a command…"
+                android:hint="@string/command_hint"
                 android:imeOptions="actionSend"
                 android:importantForAutofill="no"
                 android:inputType="textCapSentences"
@@ -252,7 +252,7 @@
                 style="@style/Widget.Material3.Button.IconButton"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:contentDescription="Talk"
+                android:contentDescription="@string/talk"
                 app:icon="@drawable/ic_mic"
                 app:iconTint="@color/text_dim"
                 tools:ignore="HardcodedText" />
@@ -262,7 +262,7 @@
                 style="@style/Widget.Material3.Button.IconButton.Filled"
                 android:layout_width="46dp"
                 android:layout_height="46dp"
-                android:contentDescription="Run command"
+                android:contentDescription="@string/run_command"
                 app:icon="@drawable/ic_send"
                 tools:ignore="HardcodedText" />
         </LinearLayout>
@@ -273,7 +273,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:text="Task history"
+            android:text="@string/task_history"
             tools:ignore="HardcodedText" />
 
         <TextView

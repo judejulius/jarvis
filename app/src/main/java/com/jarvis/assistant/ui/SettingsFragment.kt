@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
+import com.jarvis.assistant.R
 import com.jarvis.assistant.service.JarvisService
 import com.jarvis.assistant.voice.WakePhrase
 import android.view.LayoutInflater
@@ -34,8 +35,8 @@ class SettingsFragment : Fragment() {
         val activity = requireActivity()
 
         // Voice
-        ui.engineChips.addChoice("Kokoro · on phone", "kokoro")
-        ui.engineChips.addChoice("System voice", "system")
+        ui.engineChips.addChoice(getString(R.string.engine_kokoro), "kokoro")
+        ui.engineChips.addChoice(getString(R.string.engine_system), "system")
         CLOUD_VOICES.forEach { ui.engineChips.addChoice(it.name, it.id) }
         ui.engineChips.select(settings.voiceEngine)
         ui.engineChips.setOnCheckedStateChangeListener { _, _ ->
@@ -63,7 +64,7 @@ class SettingsFragment : Fragment() {
 
         // Wake word
         refreshers += Setup.bindRows(activity, ui.wakeRow, listOf(Setup.Item.WAKE_WORD, Setup.Item.SPEECH))
-        ui.customWake.text = "Wake phrase · ${settings.wakePromptPhrase}"
+        ui.customWake.text = getString(R.string.wake_phrase_value, settings.wakePromptPhrase)
         ui.customWake.setOnClickListener { editWakePhrase() }
         ui.wakeSwitch.isChecked = settings.wakeWordEnabled
         ui.bootSwitch.isChecked = settings.startOnBoot
@@ -104,17 +105,17 @@ class SettingsFragment : Fragment() {
             setText(settings.customWakePhrase)
         }
         val dialog = AlertDialog.Builder(requireContext())
-            .setTitle("Custom wake phrase")
-            .setMessage("Add an English phrase to use alongside Hey Jarvis. Clear it to use the default.")
-            .setView(field).setPositiveButton("Save", null).setNegativeButton("Cancel", null).show()
+            .setTitle(R.string.custom_wake_title)
+            .setMessage(R.string.custom_wake_message)
+            .setView(field).setPositiveButton(R.string.save, null).setNegativeButton(R.string.cancel, null).show()
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val phrase = WakePhrase.normalize(field.text.toString())
             if (phrase.isNotEmpty() && !WakePhrase.isValid(phrase)) {
-                field.error = "Use English letters and spaces, up to 40 characters."
+                field.error = getString(R.string.wake_phrase_invalid)
                 return@setOnClickListener
             }
             settings.customWakePhrase = phrase.takeUnless { it.equals(WakePhrase.DEFAULT, true) || it.equals("Jarvis", true) }.orEmpty()
-            ui.customWake.text = "Wake phrase · ${settings.wakePromptPhrase}"
+            ui.customWake.text = getString(R.string.wake_phrase_value, settings.wakePromptPhrase)
             if (JarvisService.running) {
                 requireContext().startService(Intent(requireContext(), JarvisService::class.java).setAction(JarvisService.ACTION_WAKE_SETTINGS))
             }
@@ -160,11 +161,11 @@ class SettingsFragment : Fragment() {
         shownCloud = preset?.id
         if (preset == null) return
         val config = settings.cloudVoice(preset.id)
-        ui.cloudHint.text = preset.keyHint
-        ui.cloudKeyLayout.hint = if (preset.needsKey) "API key" else "API key (optional)"
+        ui.cloudHint.setText(preset.keyHint)
+        ui.cloudKeyLayout.hint = getString(if (preset.needsKey) R.string.api_key else R.string.api_key_optional)
         ui.cloudKey.setText(config.apiKey)
         ui.cloudVoice.setText(config.voice)
-        ui.cloudVoiceHint.text = preset.voiceHint
+        ui.cloudVoiceHint.setText(preset.voiceHint)
         ui.cloudModel.setText(config.model)
         ui.cloudUrl.setText(config.baseUrl)
         ui.cloudUrlLayout.visibility = if (preset.editableUrl) View.VISIBLE else View.GONE
@@ -183,38 +184,38 @@ class SettingsFragment : Fragment() {
         ))
     }
 
-    private fun speedText(v: Float) = "Speed %.2f×".format(v)
+    private fun speedText(v: Float) = getString(R.string.voice_speed, v)
 
     private fun previewVoice() {
         saveCloudFields()
         val cloud = CLOUD_VOICES.firstOrNull { it.id == settings.voiceEngine }
         if (cloud != null && cloud.needsKey && settings.cloudVoice(cloud.id).apiKey.isBlank()) {
-            Toast.makeText(requireContext(), "Add your ${cloud.name} API key first.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), getString(R.string.add_key_first, cloud.name), Toast.LENGTH_SHORT).show()
             return
         }
         if (settings.voiceEngine == "kokoro" && !Kokoro.isInstalled(requireContext())) {
-            Toast.makeText(requireContext(), "Download the Kokoro voice first. Playing the system voice for now.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), getString(R.string.kokoro_not_downloaded), Toast.LENGTH_SHORT).show()
         }
         val voice = when {
             cloud != null -> "${cloud.name}"
             else -> KOKORO_VOICES.firstOrNull { it.sid == settings.kokoroSpeaker }?.name ?: "Jarvis"
         }
         ui.previewButton.isEnabled = false
-        ui.previewButton.text = "Speaking…"
+        ui.previewButton.text = getString(R.string.speaking_ellipsis)
         val speaker = preview ?: Speaker(requireContext()).also { preview = it }
         speaker.speak("Good evening. This is the $voice voice. All systems are online and ready when you are.") {
             _ui?.let {
                 it.previewButton.isEnabled = true
-                it.previewButton.text = "Preview voice"
+                it.previewButton.setText(R.string.preview_voice)
                 // If the voice had a problem, say so here rather than failing silently.
                 val error = speaker.lastError
                 // A voice that can't keep up with its own speech has to pause; say why.
                 val factor = Kokoro.realTimeFactor?.takeIf { cloud == null && error == null && settings.voiceEngine == "kokoro" && it > 1.1f }
                 it.voiceError.visibility = if (error != null || factor != null) View.VISIBLE else View.GONE
                 it.voiceError.text = when {
-                    factor != null -> "On this phone Kokoro takes %.1f seconds to make each second of speech, so it pauses between phrases. A cloud voice or the phone's own voice won't pause.".format(factor)
-                    cloud != null -> "$error\nPlayed the backup voice instead."
-                    else -> "Kokoro problem: $error"
+                    factor != null -> it.root.context.getString(R.string.kokoro_slow, factor)
+                    cloud != null -> it.root.context.getString(R.string.played_backup, error)
+                    else -> it.root.context.getString(R.string.kokoro_problem, error)
                 }
             }
         }

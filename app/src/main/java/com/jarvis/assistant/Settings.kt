@@ -318,9 +318,9 @@ data class CloudVoicePreset(
     val defaultVoice: String,
     val defaultBaseUrl: String,
     /** Where to get a key. */
-    val keyHint: String,
+    @androidx.annotation.StringRes val keyHint: Int,
     /** What to put in the voice field. */
-    val voiceHint: String,
+    @androidx.annotation.StringRes val voiceHint: Int,
     val needsKey: Boolean = true,
     val editableUrl: Boolean = false,
 )
@@ -329,23 +329,23 @@ data class CloudVoicePreset(
 val CLOUD_VOICES = listOf(
     CloudVoicePreset(
         "openai", "OpenAI", "gpt-4o-mini-tts", "onyx", "https://api.openai.com/v1",
-        keyHint = "Get a key at platform.openai.com → API keys. If you've added an OpenAI model, its key is used automatically.",
-        voiceHint = "alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer or verse",
+        keyHint = R.string.openai_key_hint,
+        voiceHint = R.string.openai_voice_hint,
     ),
     CloudVoicePreset(
         "elevenlabs", "ElevenLabs", "eleven_flash_v2_5", "JBFqnCBsd6RMkjVDRZzb", "https://api.elevenlabs.io/v1",
-        keyHint = "Get a key at elevenlabs.io → Developers → API keys.",
-        voiceHint = "A voice ID from your ElevenLabs voice library. The default is George, a warm British voice.",
+        keyHint = R.string.elevenlabs_key_hint,
+        voiceHint = R.string.elevenlabs_voice_hint,
     ),
     CloudVoicePreset(
         "fish", "Fish Audio", "s2.1-pro", "", "https://api.fish.audio/v1",
-        keyHint = "Get a key at fish.audio → API keys.",
-        voiceHint = "The ID of a voice on fish.audio (open the voice and copy the ID from its page). Leave empty for the default voice.",
+        keyHint = R.string.fish_key_hint,
+        voiceHint = R.string.fish_voice_hint,
     ),
     CloudVoicePreset(
         "custom", "Custom", "tts-1", "alloy", "http://192.168.1.10:8880/v1",
-        keyHint = "Any server with an OpenAI-compatible /audio/speech endpoint, such as Kokoro-FastAPI on your computer. A key is optional.",
-        voiceHint = "The voice name your server expects.",
+        keyHint = R.string.custom_voice_key_hint,
+        voiceHint = R.string.custom_voice_voice_hint,
         needsKey = false, editableUrl = true,
     ),
 )

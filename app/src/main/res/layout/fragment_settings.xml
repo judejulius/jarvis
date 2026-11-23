@@ -21,7 +21,7 @@
             style="@style/Jarvis.PageTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Settings"
+            android:text="@string/settings_title"
             tools:ignore="HardcodedText" />
 
         <!-- Voice -->
@@ -30,7 +30,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:text="Voice"
+            android:text="@string/voice"
             tools:ignore="HardcodedText" />
 
         <com.google.android.material.card.MaterialCardView
@@ -67,7 +67,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
-                        android:text="Voice: George and Lewis sound most like the films"
+                        android:text="@string/kokoro_voice_tip"
                         android:textColor="@color/text_dim"
                         android:textSize="12sp"
                         tools:ignore="HardcodedText" />
@@ -104,7 +104,7 @@
                         style="@style/Jarvis.Field"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="API key"
+                        android:hint="@string/api_key"
                         app:endIconMode="password_toggle"
                         tools:ignore="HardcodedText">
 
@@ -121,7 +121,7 @@
                         style="@style/Jarvis.Field"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="Voice"
+                        android:hint="@string/voice"
                         tools:ignore="HardcodedText">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -147,7 +147,7 @@
                         style="@style/Jarvis.Field"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="Model"
+                        android:hint="@string/model"
                         tools:ignore="HardcodedText">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -163,7 +163,7 @@
                         style="@style/Jarvis.Field"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="Server address"
+                        android:hint="@string/server_address"
                         tools:ignore="HardcodedText">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -179,7 +179,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:layout_marginStart="4dp"
-                        android:text="Needs an internet connection. If the voice can't be reached, Jarvis uses Kokoro or the phone's voice instead."
+                        android:text="@string/cloud_voice_note"
                         android:textColor="@color/text_dim"
                         android:textSize="12sp"
                         tools:ignore="HardcodedText" />
@@ -213,7 +213,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
                     android:layout_marginTop="6dp"
-                    android:text="Preview voice"
+                    android:text="@string/preview_voice"
                     app:cornerRadius="12dp"
                     app:icon="@drawable/ic_play"
                     app:iconGravity="textStart"
@@ -236,7 +236,7 @@
             style="@style/Jarvis.Section"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Listening"
+            android:text="@string/section_listening"
             tools:ignore="HardcodedText" />
 
         <com.google.android.material.card.MaterialCardView
@@ -260,7 +260,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Listen for the wake word"
+                    android:text="@string/listen_wake_word"
                     android:textColor="@color/text"
                     tools:ignore="HardcodedText" />
 
@@ -269,14 +269,14 @@
                     style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Change wake phrase"
+                    android:text="@string/change_wake_phrase"
                     tools:ignore="HardcodedText" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/bootSwitch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Start when the phone turns on"
+                    android:text="@string/start_on_boot"
                     android:textColor="@color/text"
                     tools:ignore="HardcodedText" />
 
@@ -285,7 +285,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Interrupt by talking"
+                    android:text="@string/interrupt_by_talking"
                     android:textColor="@color/text"
                     tools:ignore="HardcodedText" />
 
@@ -293,7 +293,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="64dp"
-                    android:text="Talk over Jarvis, or say &quot;stop&quot;, and it stops and listens. Keeps the microphone on while it speaks, with echo cancellation."
+                    android:text="@string/interrupt_by_talking_hint"
                     android:textColor="@color/text_dim"
                     android:textSize="12sp"
                     tools:ignore="HardcodedText" />
@@ -303,7 +303,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Keep listening after replies"
+                    android:text="@string/keep_listening"
                     android:textColor="@color/text"
                     tools:ignore="HardcodedText" />
 
@@ -311,7 +311,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="64dp"
-                    android:text="For a few seconds after answering, you can carry on without repeating the wake word."
+                    android:text="@string/keep_listening_hint"
                     android:textColor="@color/text_dim"
                     android:textSize="12sp"
                     tools:ignore="HardcodedText" />
@@ -323,7 +323,7 @@
             style="@style/Jarvis.Section"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Permissions"
+            android:text="@string/section_permissions"
             tools:ignore="HardcodedText" />
 
         <com.google.android.material.card.MaterialCardView
@@ -343,7 +343,7 @@
             style="@style/Jarvis.Section"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="About you"
+            android:text="@string/section_about_you"
             tools:ignore="HardcodedText" />
 
         <com.google.android.material.card.MaterialCardView
@@ -361,8 +361,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="0dp"
-                    android:hint="Things Jarvis should know about you"
-                    app:helperText="e.g. My wife is saved as &quot;Amaka&quot; in WhatsApp"
+                    android:hint="@string/about_you_hint"
+                    app:helperText="@string/about_you_example"
                     app:helperTextTextColor="@color/text_dim">
 
                     <com.google.android.material.textfield.TextInputEditText
@@ -378,8 +378,8 @@
                     style="@style/Jarvis.Field"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Tips for apps"
-                    app:helperText="One per line, e.g. WhatsApp: the search icon is at the top right"
+                    android:hint="@string/app_tips_hint"
+                    app:helperText="@string/app_tips_example"
                     app:helperTextTextColor="@color/text_dim"
                     tools:ignore="HardcodedText">
 
@@ -397,7 +397,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:text="Show the task island at the top while Jarvis works"
+                    android:text="@string/show_island"
                     android:textColor="@color/text"
                     tools:ignore="HardcodedText" />
 
@@ -406,7 +406,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:text="Let vision models see screenshots"
+                    android:text="@string/allow_screenshots"
                     android:textColor="@color/text"
                     tools:ignore="HardcodedText" />
 
@@ -414,7 +414,7 @@
                     style="@style/Jarvis.Field"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Max steps per task">
+                    android:hint="@string/max_steps">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/maxSteps"
@@ -431,7 +431,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Run the setup walkthrough again"
+            android:text="@string/rerun_setup"
             android:textColor="@color/accent"
             tools:ignore="HardcodedText" />
     </LinearLayout>

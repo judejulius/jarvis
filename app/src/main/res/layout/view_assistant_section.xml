@@ -10,7 +10,7 @@
         style="@style/Jarvis.Section"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Assistant"
+        android:text="@string/section_assistant"
         tools:ignore="HardcodedText" />
 
     <com.google.android.material.card.MaterialCardView
@@ -26,7 +26,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Which AI answers"
+                android:text="@string/which_ai"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -48,7 +48,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:text="Voice command language"
+                android:text="@string/voice_command_language"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -71,7 +71,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Ask before calls and messages"
+                android:text="@string/confirm_sensitive"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -79,7 +79,7 @@
                 android:id="@+id/shareMemorySwitch"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Let cloud AI see my memories"
+                android:text="@string/share_memory_cloud"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -87,7 +87,7 @@
                 android:id="@+id/autoStartSwitch"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Start the on-phone model automatically"
+                android:text="@string/autostart_local_model"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -103,7 +103,7 @@
                 android:id="@+id/rememberTasksSwitch"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Remember what tasks I have done"
+                android:text="@string/remember_tasks"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -112,7 +112,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Use the on-device model built into Jarvis"
+                android:text="@string/use_embedded_model"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -120,7 +120,7 @@
                 android:id="@+id/mobileDownloadSwitch"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Allow the model download on mobile data"
+                android:text="@string/allow_mobile_data_download"
                 android:textColor="@color/text"
                 tools:ignore="HardcodedText" />
 
@@ -138,7 +138,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="10dp"
-                android:text="Download on-device model"
+                android:text="@string/download_embedded_model"
                 app:cornerRadius="12dp"
                 tools:ignore="HardcodedText" />
 
@@ -148,7 +148,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="10dp"
-                android:text="Allow contacts and calling"
+                android:text="@string/allow_contacts"
                 app:cornerRadius="12dp"
                 tools:ignore="HardcodedText" />
 
@@ -158,7 +158,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="10dp"
-                android:text="Memories"
+                android:text="@string/memories"
                 app:cornerRadius="12dp"
                 tools:ignore="HardcodedText" />
         </LinearLayout>

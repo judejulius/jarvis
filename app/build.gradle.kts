@@ -47,6 +47,11 @@ android {
             if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
+    // Lists the app's languages so Android 13+ offers Jarvis under Settings > Apps > Language.
+    androidResources {
+        generateLocaleConfig = true
+    }
+
     buildFeatures {
         viewBinding = true
     }

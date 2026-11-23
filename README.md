@@ -265,7 +265,7 @@ Ideas we'd love help with:
 - [x] 32-bit ARM and x86_64 builds
 - [x] Task history with replay of each step. Open **Home → Task history**, choose a task, and use **Previous** and **Next** to review what happened. The latest 100 saved tasks stay on your phone. You can delete individual entries, clear the history, or turn off recording in Settings.
 - [x] Per-app tips that help the model. Common apps such as WhatsApp, YouTube and Gmail have built-in tips. Add your own in **Settings → About you → Tips for apps**, one per line, e.g. `WhatsApp: the search icon is at the top right`.
-- [ ] Translations of the app interface
+- [x] Translations of the app interface. The app is available in English and Hindi; it follows the phone's language, and on Android 13+ you can choose it per app. See [CONTRIBUTING.md](CONTRIBUTING.md#translating-the-app) to add another language.
 
 ## Contributing
 

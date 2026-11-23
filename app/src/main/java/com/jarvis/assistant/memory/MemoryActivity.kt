@@ -40,8 +40,8 @@ class MemoryActivity : AppCompatActivity() {
                 addView(TextView(context).apply { setTextColor(color(R.color.text)); textSize = 16f })
                 addView(TextView(context).apply { setTextColor(color(R.color.text_dim)); textSize = 12f })
             }
-            (row.getChildAt(0) as TextView).text = item.title
-            (row.getChildAt(1) as TextView).text = item.detail
+            (row.getChildAt(0) as TextView).text = MemoryLabels.title(this@MemoryActivity, item)
+            (row.getChildAt(1) as TextView).text = MemoryLabels.detail(this@MemoryActivity, item)
             return row
         }
     }
@@ -56,20 +56,18 @@ class MemoryActivity : AppCompatActivity() {
             setPadding(dp(18), dp(24), dp(18), dp(12))
         }
         root.addView(TextView(this).apply {
-            text = if (historyOnly) "Task history" else "Memories"
+            text = getString(if (historyOnly) R.string.task_history else R.string.memories)
             textSize = 28f
             setTextColor(color(R.color.text))
         })
         root.addView(TextView(this).apply {
-            text = if (historyOnly) "Tap a task to review each step. Hold a task to delete it."
-            else "Things you asked Jarvis to remember, and app names you taught it. Tap a note to edit it, hold any row to delete it. They stay on this phone."
+            text = getString(if (historyOnly) R.string.history_intro else R.string.memories_intro)
             textSize = 13f
             setTextColor(color(R.color.text_dim))
             setPadding(0, dp(6), 0, dp(12))
         })
         empty = TextView(this).apply {
-            text = if (historyOnly) "No tasks saved yet."
-            else "Nothing saved yet. Try saying: \"Hey Jarvis, remember that I prefer short answers.\""
+            text = getString(if (historyOnly) R.string.history_empty else R.string.memories_empty)
             setTextColor(color(R.color.text_dim))
             visibility = View.GONE
         }
@@ -81,7 +79,7 @@ class MemoryActivity : AppCompatActivity() {
         }
         root.addView(list)
         root.addView(TextView(this).apply {
-            text = if (historyOnly) "Clear task history" else "Delete everything"
+            text = getString(if (historyOnly) R.string.clear_history else R.string.delete_everything)
             setTextColor(color(R.color.danger))
             setPadding(0, dp(12), 0, dp(12))
             setOnClickListener { confirmClear() }
@@ -110,7 +108,7 @@ class MemoryActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 val loaded = result.getOrElse {
-                    Toast.makeText(this, "Couldn’t load saved entries.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, R.string.load_failed, Toast.LENGTH_SHORT).show()
                     return@runOnUiThread
                 }
                 items = loaded
@@ -131,31 +129,31 @@ class MemoryActivity : AppCompatActivity() {
         }
         val input = EditText(this).apply { setText(item.title); setSelection(text.length) }
         AlertDialog.Builder(this)
-            .setTitle("Edit note")
+            .setTitle(R.string.edit_note)
             .setView(input)
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton(R.string.save) { _, _ ->
                 val text = input.text.toString()
                 updateStore { store.updateFact(item.id, text) }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
     private fun confirmDelete(item: MemoryStore.Item) {
         AlertDialog.Builder(this)
-            .setMessage("Delete this memory?\n\n${item.title}")
-            .setPositiveButton("Delete") { _, _ -> updateStore { store.delete(item.kind, item.id) } }
-            .setNegativeButton("Cancel", null)
+            .setMessage(getString(R.string.delete_memory, MemoryLabels.title(this, item)))
+            .setPositiveButton(R.string.delete) { _, _ -> updateStore { store.delete(item.kind, item.id) } }
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
     private fun confirmClear() {
         AlertDialog.Builder(this)
-            .setMessage(if (historyOnly) "Delete all saved tasks and their steps?" else "Delete everything Jarvis remembers? This cannot be undone.")
-            .setPositiveButton("Delete") { _, _ ->
+            .setMessage(if (historyOnly) R.string.confirm_clear_history else R.string.confirm_clear_all)
+            .setPositiveButton(R.string.delete) { _, _ ->
                 updateStore { if (historyOnly) store.clearHistory() else store.clearAll() }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
@@ -165,7 +163,7 @@ class MemoryActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (result.isSuccess) refresh()
-                else Toast.makeText(this, "Couldn’t update saved entries.", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(this, R.string.update_failed, Toast.LENGTH_SHORT).show()
             }
         }
     }

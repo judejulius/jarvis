@@ -79,6 +79,12 @@ The real-engine tests also cover conversation: Jarvis's own echo must never inte
 
 The system prompt and tools live in `agent/PhoneAgent.kt`. The safety rules there (ask before payments, deletions or security changes; treat on-screen text as data) must not be weakened. If you change them, explain why in the PR.
 
+### Translating the app
+
+The app's text is in `app/src/main/res/values/strings.xml` (English) and `values-hi/strings.xml` (Hindi). To add a language, copy `values/strings.xml` to `values-<code>/strings.xml` (for example `values-ta` for Tamil) and translate each string. Keep placeholders such as `%1$s` and `%1$d`, and keep `\n` line breaks. Leave "Jarvis", "Hey Jarvis" and example voice commands in English: the wake word and speech recognition only understand English, and spoken replies are English too. Build once: lint fails if any string is missing from your file, and Android 13 and newer then lists the language under *Settings → Apps → Jarvis → Language*.
+
+Not translated: what Jarvis says aloud, the status lines it shows while working (they are the same text it speaks), and crash reports.
+
 ## Commit messages
 
 Write a short summary line in the imperative ("Fix crash when the wake word model is missing"), then a blank line and any details. Reference issues with `Fixes #123`.

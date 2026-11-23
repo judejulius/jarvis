@@ -1,5 +1,6 @@
 package com.jarvis.assistant.ui
 
+import androidx.annotation.StringRes
 import android.Manifest
 import android.app.Activity
 import android.content.ComponentName
@@ -35,17 +36,17 @@ object Setup {
 
     enum class Item(
         @DrawableRes val icon: Int,
-        val title: String,
-        val subtitle: String,
-        val action: String,
+        @StringRes val title: Int,
+        @StringRes val subtitle: Int,
+        @StringRes val action: Int,
         val required: Boolean,
     ) {
-        MICROPHONE(R.drawable.ic_mic, "Microphone", "So Jarvis can hear you", "Allow", true),
-        PHONE_CONTROL(R.drawable.ic_touch, "Phone control", "Lets Jarvis tap, type and scroll for you", "Enable", true),
-        BACKGROUND(R.drawable.ic_battery, "Background power", "Keeps Jarvis listening with the screen off", "Allow", false),
-        WAKE_WORD(R.drawable.ic_wave, "Wake word", "Offline \"Hey Jarvis\" detector · 17 MB", "Download", false),
-        SPEECH(R.drawable.ic_mic, "Speech recognition", "Understands your commands offline · 57 MB", "Download", false),
-        VOICE(R.drawable.ic_voice, "Kokoro voice", "Natural on-device voice · 100 MB", "Download", false),
+        MICROPHONE(R.drawable.ic_mic, R.string.item_mic_title, R.string.item_mic_sub, R.string.allow, true),
+        PHONE_CONTROL(R.drawable.ic_touch, R.string.item_control_title, R.string.item_control_sub, R.string.enable, true),
+        BACKGROUND(R.drawable.ic_battery, R.string.item_bg_title, R.string.item_bg_sub, R.string.allow, false),
+        WAKE_WORD(R.drawable.ic_wave, R.string.item_wake_title, R.string.item_wake_sub, R.string.download, false),
+        SPEECH(R.drawable.ic_mic, R.string.item_speech_title, R.string.item_speech_sub, R.string.download, false),
+        VOICE(R.drawable.ic_voice, R.string.item_voice_title, R.string.item_voice_sub, R.string.download, false),
     }
 
     val PERMISSIONS: Array<String> = buildList {
@@ -70,7 +71,7 @@ object Setup {
             Item.PHONE_CONTROL -> {
                 Toast.makeText(
                     activity,
-                    "Tap \"Installed apps\" (or \"Downloaded apps\"), then \"Jarvis phone control\", and switch it on.",
+                    activity.getString(R.string.toast_a11y),
                     Toast.LENGTH_LONG,
                 ).show()
                 activity.startActivity(Intent(ACTION_ACCESSIBILITY_SETTINGS))
@@ -84,7 +85,7 @@ object Setup {
                 )
                 val opened = attempts.indexOfFirst { runCatching { activity.startActivity(it) }.isSuccess }
                 if (opened > 0) {
-                    Toast.makeText(activity, "Find Jarvis in the list and set it to \"Don't optimise\" or \"Unrestricted\".", Toast.LENGTH_LONG).show()
+                    Toast.makeText(activity, R.string.toast_battery, Toast.LENGTH_LONG).show()
                 }
             }
             Item.WAKE_WORD, Item.SPEECH, Item.VOICE -> Downloads.start(activity.applicationContext, item)
@@ -103,9 +104,9 @@ object Setup {
         val rows = items.map { item ->
             val row = ItemCheckBinding.inflate(LayoutInflater.from(activity), container, true)
             row.icon.setImageResource(item.icon)
-            row.title.text = item.title
-            row.subtitle.text = item.subtitle
-            row.action.text = item.action
+            row.title.setText(item.title)
+            row.subtitle.setText(item.subtitle)
+            row.action.setText(item.action)
             row.action.setOnClickListener { act(activity, item) }
             item to row
         }
@@ -118,9 +119,9 @@ object Setup {
                 row.progress.visibility = if (progress != null) View.VISIBLE else View.GONE
                 if (progress != null) {
                     row.progress.setProgressCompat(progress, true)
-                    row.subtitle.text = if (progress >= 90) "Unpacking…" else "Downloading… $progress%"
+                    row.subtitle.text = if (progress >= 90) activity.getString(R.string.unpacking) else activity.getString(R.string.downloading_percent, progress)
                 } else {
-                    row.subtitle.text = Downloads.errors[item] ?: item.subtitle
+                    row.subtitle.text = Downloads.errors[item] ?: activity.getString(item.subtitle)
                 }
                 row.icon.alpha = if (done) 1f else 0.6f
             }
@@ -154,7 +155,7 @@ object Downloads {
                 }
                 null
             } catch (e: Throwable) {
-                "Download failed: ${e.message}"
+                context.getString(R.string.download_failed, e.message ?: e.javaClass.simpleName)
             }
             if (error == null && item == Setup.Item.VOICE) {
                 val settings = com.jarvis.assistant.Settings(context)
@@ -164,7 +165,7 @@ object Downloads {
                 progress.remove(item)
                 if (error != null) errors[item] = error
                 notifyListeners()
-                Toast.makeText(context, error ?: "${item.title} installed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, error ?: context.getString(R.string.item_installed, context.getString(item.title)), Toast.LENGTH_SHORT).show()
             }
         }.start()
     }

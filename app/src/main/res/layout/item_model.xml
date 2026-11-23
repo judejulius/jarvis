@@ -60,7 +60,7 @@
                     android:fontFamily="sans-serif-medium"
                     android:paddingHorizontal="8dp"
                     android:paddingVertical="2dp"
-                    android:text="Primary"
+                    android:text="@string/primary"
                     android:textColor="@color/accent"
                     android:textSize="11sp"
                     tools:ignore="HardcodedText,SmallSp" />
@@ -83,7 +83,7 @@
             style="@style/Widget.Material3.Button.IconButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:contentDescription="Make primary"
+            android:contentDescription="@string/make_primary"
             app:icon="@drawable/ic_star_outline"
             app:iconTint="@color/accent"
             tools:ignore="HardcodedText" />

@@ -50,7 +50,7 @@ class ModelsFragment : Fragment() {
             row.detail.text = "${profile.preset.label} · ${profile.model}"
             row.primaryTag.visibility = if (isPrimary) View.VISIBLE else View.GONE
             row.star.setIconResource(if (isPrimary) R.drawable.ic_star else R.drawable.ic_star_outline)
-            row.star.contentDescription = if (isPrimary) "Primary model" else "Make primary"
+            row.star.contentDescription = getString(if (isPrimary) R.string.primary_model else R.string.make_primary)
             row.card.strokeColor = ctx.color(if (isPrimary) R.color.accent else R.color.stroke)
             row.star.setOnClickListener {
                 settings.primaryId = profile.id
@@ -60,6 +60,6 @@ class ModelsFragment : Fragment() {
                 startActivity(Intent(ctx, ModelEditActivity::class.java).putExtra(ModelEditActivity.EXTRA_ID, profile.id))
             }
         }
-        ui.addButton.text = if (models.isEmpty()) "Add your first model" else "Add another model"
+        ui.addButton.text = getString(if (models.isEmpty()) R.string.add_first_model else R.string.add_another_model)
     }
 }

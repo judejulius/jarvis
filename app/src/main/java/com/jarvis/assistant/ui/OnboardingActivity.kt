@@ -1,5 +1,6 @@
 package com.jarvis.assistant.ui
 
+import androidx.annotation.StringRes
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -88,50 +89,41 @@ class OnboardingActivity : AppCompatActivity() {
         val done = isDone(step)
         ui.stepDone.visibility = if (done) View.VISIBLE else View.GONE
         ui.skipButton.visibility = if (step == Step.WELCOME || done) View.GONE else View.VISIBLE
-        ui.skipButton.text = if (step == Step.DONE) "Go to the app without activating" else "Skip for now"
+        ui.skipButton.text = getString(if (step == Step.DONE) R.string.skip_activation else R.string.skip_for_now)
 
         when (step) {
-            Step.WELCOME -> show(0, "Hello, I'm Jarvis",
-                "I can run your phone for you. Say \"Hey Jarvis\" and tell me what you need: send a message, open an app, change a setting.\n\nLet's get me set up. It takes about two minutes.",
-                "Get started")
+            Step.WELCOME -> show(0, R.string.ob_welcome_title, getString(R.string.ob_welcome_body), R.string.get_started)
             Step.MICROPHONE -> {
-                show(R.drawable.ic_mic, "Let me hear you",
-                    "I need the microphone to hear \"Hey Jarvis\" and your commands. Listening for the wake word happens entirely on your phone.",
-                    if (done) "Continue" else "Allow microphone")
+                show(R.drawable.ic_mic, R.string.ob_mic_title, getString(R.string.ob_mic_body),
+                    if (done) R.string.continue_ else R.string.allow_microphone)
                 // Ask straight away; Android shows its own permission prompt.
                 if (!done && askedFor.add(step)) requestPermissions(Setup.PERMISSIONS, 1)
             }
             Step.PHONE_CONTROL -> {
-                show(R.drawable.ic_touch, "Let me use your phone",
-                    "To tap, type and scroll for you, Android needs you to switch on Jarvis in Accessibility settings:\n\n1. Tap Open settings below\n2. Find Installed apps (or Downloaded apps)\n3. Tap Jarvis phone control and switch it on",
-                    if (done) "Continue" else "Open settings")
+                show(R.drawable.ic_touch, R.string.ob_control_title, getString(R.string.ob_control_body),
+                    if (done) R.string.continue_ else R.string.open_settings)
                 if (!done && Build.VERSION.SDK_INT >= 33) {
-                    addNote("Greyed out or says \"Restricted setting\"? Open Jarvis's app info, tap ⋮ in the top corner, choose \"Allow restricted settings\", then try again.")
-                    addButton("Open Jarvis app info") {
+                    addNote(getString(R.string.ob_control_note))
+                    addButton(getString(R.string.open_app_info)) {
                         startActivity(Intent(ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
                     }
                 }
             }
-            Step.BACKGROUND -> show(R.drawable.ic_battery, "Stay awake for you",
-                "Allow Jarvis to run in the background so I can still hear \"Hey Jarvis\" when your screen is off.\n\nOn Samsung, Xiaomi and some other phones, also set Jarvis's battery setting to \"Unrestricted\".",
-                when { done -> "Continue"; step in attempted -> "Continue anyway"; else -> "Allow" })
+            Step.BACKGROUND -> show(R.drawable.ic_battery, R.string.ob_bg_title, getString(R.string.ob_bg_body),
+                when { done -> R.string.continue_; step in attempted -> R.string.continue_anyway; else -> R.string.allow })
             Step.DOWNLOADS -> {
                 val downloading = Downloads.progress.isNotEmpty()
-                show(R.drawable.ic_voice, "Ears and a voice",
-                    "Three downloads that run entirely on your phone: the \"Hey Jarvis\" listener, speech recognition for your commands, and Kokoro, a natural-sounding voice. Use Wi-Fi if you can. You can carry on while they download.",
-                    when { done || downloading -> "Continue"; else -> "Download all (175 MB)" })
+                show(R.drawable.ic_voice, R.string.ob_dl_title, getString(R.string.ob_dl_body),
+                    when { done || downloading -> R.string.continue_; else -> R.string.download_all })
                 refreshDownloads = Setup.bindRows(this, ui.stepExtra, DOWNLOADS).also { it() }
             }
             Step.MODEL -> {
                 val primary = settings.primary()
-                show(R.drawable.ic_memory, "Connect my brain",
-                    if (primary == null) "Choose the AI that does the thinking: Claude, OpenAI, or a model on your own computer with LM Studio or Ollama. You can add more later and pick a primary one."
-                    else "I'll think with ${primary.name}. You can add more models and change the primary one on the Models page.",
-                    if (primary == null) "Add a model" else "Continue")
+                show(R.drawable.ic_memory, R.string.ob_model_title,
+                    if (primary == null) getString(R.string.ob_model_body_none) else getString(R.string.ob_model_body, primary.name),
+                    if (primary == null) R.string.add_a_model else R.string.continue_)
             }
-            Step.DONE -> show(0, "All systems online",
-                "Say \"Hey Jarvis\" any time, or tap the mic in the app. Try: \"Hey Jarvis, message my wife on WhatsApp and tell her I love her.\"",
-                "Turn on Jarvis")
+            Step.DONE -> show(0, R.string.ob_done_title, getString(R.string.ob_done_body), R.string.turn_on_jarvis)
         }
 
         // Tick a step off as soon as the user comes back having done it.
@@ -141,11 +133,11 @@ class OnboardingActivity : AppCompatActivity() {
         }
     }
 
-    private fun show(@DrawableRes icon: Int, title: String, body: String, button: String) {
+    private fun show(@DrawableRes icon: Int, @StringRes title: Int, body: String, @StringRes button: Int) {
         if (icon != 0) ui.stepIcon.setImageResource(icon)
-        ui.stepTitle.text = title
+        ui.stepTitle.setText(title)
         ui.stepBody.text = body
-        ui.primaryButton.text = button
+        ui.primaryButton.setText(button)
     }
 
     private fun addNote(text: String) {
