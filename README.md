@@ -259,7 +259,7 @@ Found a security problem? Please see [SECURITY.md](SECURITY.md).
 Ideas we'd love help with:
 
 - [ ] More languages for the wake word, speech recognition and voice
-- [ ] Custom wake words
+- [x] Custom wake words. In **Settings → Listening → Wake phrase**, add an English phrase or clear it to restore the default. “Hey Jarvis” and “Jarvis” also work with a custom phrase.
 - [ ] 32-bit ARM and x86_64 builds
 - [ ] Task history with replay of each step
 - [ ] Per-app tips that help the model (e.g. "In WhatsApp, the search icon is…")

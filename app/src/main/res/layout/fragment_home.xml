@@ -268,11 +268,12 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/wakeExample"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:gravity="center"
-            android:text="Try “Hey Jarvis, text Mum I’m on my way”"
+            tools:text="Try “Hey Jarvis, text Mum I’m on my way”"
             android:textColor="@color/text_dim"
             android:textSize="12sp"
             tools:ignore="HardcodedText" />

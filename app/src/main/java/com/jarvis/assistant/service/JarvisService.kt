@@ -145,6 +145,7 @@ class JarvisService : Service() {
         settings = Settings(this)
         speaker = Speaker(this)
         voice = VoiceInput(this) { onWakeWord() }
+        voice.customWakePhrase = settings.customWakePhrase
         voice.earlyAccept = { text -> FastCommandRouter.earlyAcceptDelayMs(text) }
         voice.onMicProblem = { problem, _ -> onMicProblem(problem) }
         runCatching { setupRuntime() }.onFailure { Log.w(TAG, "runtime setup skipped", it) }
@@ -187,6 +188,12 @@ class JarvisService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RUN -> intent.getStringExtra(EXTRA_TASK)?.let { runTask(it) }
+            ACTION_WAKE_SETTINGS -> {
+                voice.customWakePhrase = settings.customWakePhrase
+                if (state == State.IDLE && voice.hasWakeWord && settings.wakeWordEnabled) {
+                    update("Say \"${settings.wakePromptPhrase}\"")
+                }
+            }
             ACTION_LISTEN -> if (state == State.IDLE) onWakeWord()
         }
         return START_STICKY
@@ -214,7 +221,7 @@ class JarvisService : Service() {
         when (s.phase) {
             EmbeddedRuntime.Phase.DOWNLOADING -> update("Downloading the on-device model… ${if (s.percent >= 0) "${s.percent}%" else s.detail}")
             EmbeddedRuntime.Phase.FAILED, EmbeddedRuntime.Phase.NO_MODEL -> if (s.detail.isNotBlank()) update(s.detail)
-            EmbeddedRuntime.Phase.STOPPED -> if (runtime.hasModel()) update("On-device model ready. Say \"Hey Jarvis\"")
+            EmbeddedRuntime.Phase.STOPPED -> if (runtime.hasModel()) update("On-device model ready. Say \"${settings.wakePromptPhrase}\"")
             else -> Unit
         }
     }
@@ -222,7 +229,7 @@ class JarvisService : Service() {
     private fun onMicProblem(problem: String) {
         if (destroyed || state != State.IDLE) return
         when (problem) {
-            "ok" -> update("Say \"Hey Jarvis\"")
+            "ok" -> update("Say \"${settings.wakePromptPhrase}\"")
             "blocked" -> update("Android is blocking the microphone. Open Jarvis once, then try again.")
             else -> update("Microphone busy. Reconnecting…")
         }
@@ -920,8 +927,8 @@ class JarvisService : Service() {
             when {
                 error != null -> update(error)
                 !settings.wakeWordEnabled -> { voice.stop(); update("Ready. Tap the mic to talk.") }
-                !voice.hasWakeWord -> update("Ready. Download the wake word in Settings to use \"Hey Jarvis\".")
-                else -> { voice.start(); update("Say \"Hey Jarvis\"") }
+                !voice.hasWakeWord -> update("Ready. Download the wake word in Settings to use \"${settings.wakePromptPhrase}\".")
+                else -> { voice.start(); update("Say \"${settings.wakePromptPhrase}\"") }
             }
         }
     }
@@ -1043,6 +1050,7 @@ class JarvisService : Service() {
         private const val CHANNEL = "jarvis"
         private const val NOTIFICATION_ID = 1
         const val ACTION_RUN = "com.jarvis.assistant.RUN"
+        const val ACTION_WAKE_SETTINGS = "com.jarvis.assistant.WAKE_SETTINGS"
         const val ACTION_LISTEN = "com.jarvis.assistant.LISTEN"
         const val ACTION_STOP_TASK = "com.jarvis.assistant.STOP_TASK"
         const val ACTION_SHUTDOWN = "com.jarvis.assistant.SHUTDOWN"

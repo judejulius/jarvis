@@ -2,6 +2,10 @@ package com.jarvis.assistant.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.EditText
+import androidx.appcompat.app.AlertDialog
+import com.jarvis.assistant.service.JarvisService
+import com.jarvis.assistant.voice.WakePhrase
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -59,6 +63,8 @@ class SettingsFragment : Fragment() {
 
         // Wake word
         refreshers += Setup.bindRows(activity, ui.wakeRow, listOf(Setup.Item.WAKE_WORD, Setup.Item.SPEECH))
+        ui.customWake.text = "Wake phrase · ${settings.wakePromptPhrase}"
+        ui.customWake.setOnClickListener { editWakePhrase() }
         ui.wakeSwitch.isChecked = settings.wakeWordEnabled
         ui.bootSwitch.isChecked = settings.startOnBoot
         ui.wakeSwitch.setOnCheckedChangeListener { _, v -> settings.wakeWordEnabled = v }
@@ -88,6 +94,31 @@ class SettingsFragment : Fragment() {
             refreshers += AssistantSection.attach(requireContext(), settings, ui.scroll.getChildAt(0) as ViewGroup)
         }.onFailure { android.util.Log.e("Settings", "could not add the Assistant section", it) }
         return ui.root
+    }
+
+    private fun editWakePhrase() {
+        val field = EditText(requireContext()).apply {
+            setSingleLine()
+            hint = "Hey Computer"
+            setText(settings.customWakePhrase)
+        }
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle("Custom wake phrase")
+            .setMessage("Add an English phrase to use alongside Hey Jarvis. Clear it to use the default.")
+            .setView(field).setPositiveButton("Save", null).setNegativeButton("Cancel", null).show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val phrase = WakePhrase.normalize(field.text.toString())
+            if (phrase.isNotEmpty() && !WakePhrase.isValid(phrase)) {
+                field.error = "Use English letters and spaces, up to 40 characters."
+                return@setOnClickListener
+            }
+            settings.customWakePhrase = phrase.takeUnless { it.equals(WakePhrase.DEFAULT, true) || it.equals("Jarvis", true) }.orEmpty()
+            ui.customWake.text = "Wake phrase · ${settings.wakePromptPhrase}"
+            if (JarvisService.running) {
+                requireContext().startService(Intent(requireContext(), JarvisService::class.java).setAction(JarvisService.ACTION_WAKE_SETTINGS))
+            }
+            dialog.dismiss()
+        }
     }
 
     override fun onResume() {

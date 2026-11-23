@@ -77,6 +77,12 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("screenshots", true)
         set(v) = prefs.edit().putBoolean("screenshots", v).apply()
 
+    var customWakePhrase: String
+        get() = prefs.getString("custom_wake_phrase", "").orEmpty()
+        set(v) = prefs.edit().putString("custom_wake_phrase", v).apply()
+
+    val wakePromptPhrase get() = customWakePhrase.ifEmpty { com.jarvis.assistant.voice.WakePhrase.DEFAULT }
+
     var wakeWordEnabled: Boolean
         get() = prefs.getBoolean("wake_enabled", true)
         set(v) = prefs.edit().putBoolean("wake_enabled", v).apply()

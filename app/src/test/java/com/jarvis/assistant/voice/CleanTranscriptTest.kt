@@ -16,6 +16,13 @@ class CleanTranscriptTest {
         assertEquals("", c("Hey Jervis."))
     }
 
+    @Test fun stripsOnlyTheDetectedCustomPhraseAtTheStart() {
+        assertEquals("Open maps", VoiceInput.clean("Hello computer, open maps", "Hello Computer"))
+        assertEquals("Open maps", VoiceInput.clean("computer open maps", "Hello Computer"))
+        assertEquals("Call the computer shop", VoiceInput.clean("Call the computer shop", "Computer"))
+        assertEquals("Computer repair", VoiceInput.clean("computer repair"))
+    }
+
     @Test fun stripsOwnPrompt() {
         assertEquals("Open settings", c("Jarvis yes? open settings"))
         assertEquals("Open settings", c("yes, open settings"))

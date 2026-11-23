@@ -75,6 +75,7 @@ class HomeFragment : Fragment() {
 
     private fun refresh() {
         val ctx = requireContext()
+        ui.wakeExample.text = "Try “${settings.wakePromptPhrase}, text Mum I’m on my way”"
         val running = JarvisService.running
         val phase = if (running) JarvisService.phase else Phase.OFF
         ui.reactor.mode = when (phase) {

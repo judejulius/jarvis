@@ -81,6 +81,9 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
     @Volatile var level = 0f
         private set
 
+    @Volatile var customWakePhrase = ""
+    private var capturedPhrase = ""
+
     @Volatile var wakeEnabled = true
 
     /** Use the phone's echo cancellation so the user can talk over Jarvis. Applies when the microphone next opens. */
@@ -145,7 +148,9 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
      */
     fun listenWhileSpeaking(spoken: String, bargeIn: (stop: Boolean) -> Unit) {
         onBargeIn = bargeIn
-        speakingSaysName = words(spoken).any { it.length >= 4 && editDistance(it, "jarvis") <= 1 }
+        val custom = customWakePhrase
+        speakingSaysName = (custom.isNotEmpty() && " ${words(spoken).joinToString(" ")} ".contains(" ${custom.lowercase()} ")) ||
+            words(spoken).any { it.length >= 4 && editDistance(it, "jarvis") <= 1 }
         speakingSaysStop = soundsLikeStop(spoken)
         speakingWords = words(spoken).toSet()
         muted = false
@@ -257,21 +262,22 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         val asr = recognizer ?: run { onResult(null); return }
         synchronized(lock) {
             command?.stream?.release()
-            command = CommandSession(asr.createStream(""), silenceTimeoutMs, onResult, echoToStrip).apply {
+            command = CommandSession(asr.createStream(""), silenceTimeoutMs, onResult, echoToStrip, capturedPhrase).apply {
                 pending.addAll(afterWake) // replay what was said right after the wake word
             }
             afterWake.clear()
             capturing = false
             echoToStrip = null
+            capturedPhrase = ""
         }
         start()
     }
 
     fun cancelCommand() {
-        synchronized(lock) { command?.stream?.release(); command = null; capturing = false; afterWake.clear(); echoToStrip = null }
+        synchronized(lock) { command?.stream?.release(); command = null; capturing = false; afterWake.clear(); echoToStrip = null; capturedPhrase = "" }
     }
 
-    private class CommandSession(val stream: OnlineStream, val silenceTimeoutMs: Long, val onResult: (String?) -> Unit, val echo: Set<String>?) {
+    private class CommandSession(val stream: OnlineStream, val silenceTimeoutMs: Long, val onResult: (String?) -> Unit, val echo: Set<String>?, val wakePhrase: String) {
         val pending = ArrayList<FloatArray>()
         var text = ""
         var samples = 0L
@@ -341,6 +347,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         }
         var record: AudioRecord? = null
         var wakeStream: OnlineStream? = null
+        var streamPhrase = ""
         var echoCanceller: AcousticEchoCanceler? = null
         try {
             val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
@@ -418,14 +425,24 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
                 if (checkBargeIn(samples)) continue
                 val kws = spotter
                 if (kws != null && wakeEnabled && !(speakingWords != null && speakingSaysName)) {
-                    val stream = wakeStream ?: kws.createStream("").also { wakeStream = it }
+                    val phrase = customWakePhrase
+                    if (phrase != streamPhrase) {
+                        wakeStream?.release()
+                        wakeStream = null
+                        streamPhrase = phrase
+                    }
+                    val stream = wakeStream ?: kws.createStream(
+                        if (phrase.isEmpty()) "" else WakePhrase.keyword(context, phrase)
+                    ).also { wakeStream = it }
                     stream.acceptWaveform(samples, SAMPLE_RATE)
                     while (kws.isReady(stream)) {
                         kws.decode(stream)
-                        if (kws.getResult(stream).keyword.isNotBlank()) {
+                        val hit = kws.getResult(stream).keyword
+                        if (hit.isNotBlank()) {
                             kws.reset(stream)
                             synchronized(lock) {
                                 afterWake.clear()
+                                capturedPhrase = if (hit == "CUSTOM") phrase else ""
                                 afterWake.addAll(recent) // includes "Jarvis" itself; clean() strips it from the text
                                 capturing = recognizer != null
                             }
@@ -521,7 +538,7 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
         session.stream.acceptWaveform(samples, SAMPLE_RATE)
         while (asr.isReady(session.stream)) asr.decode(session.stream)
         session.samples += samples.size
-        val text = clean(stripEcho(asr.getResult(session.stream).text, session.echo))
+        val text = clean(stripEcho(asr.getResult(session.stream).text, session.echo), session.wakePhrase)
         if (text != session.text) {
             synchronized(lock) { session.text = text }
             session.lastChangeAt = session.samples
@@ -611,15 +628,23 @@ class VoiceInput(private val context: Context, private val onWake: () -> Unit) {
          * own "Yes?" prompt. The recogniser spells the wake word inconsistently ("Jarvis", "Arvis",
          * "Page Arvis"), so any of the first three words within one letter of "jarvis" counts.
          */
-        fun clean(raw: String): String {
+        fun clean(raw: String, wakePhrase: String = ""): String {
             val words = raw.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
             var cut = 0
-            for (i in 0 until minOf(3, words.size)) {
-                val one = letters(words[i])
-                val two = if (i + 1 < words.size) one + letters(words[i + 1]) else ""
-                when {
-                    one.length >= 4 && editDistance(one, "jarvis") <= 1 -> { cut = i + 1; break }
-                    two.length >= 5 && editDistance(two, "jarvis") <= 1 -> { cut = i + 2; break } // "jar vis"
+            if (wakePhrase.isNotEmpty()) {
+                // The pre-roll can start partway through a long wake phrase.
+                val phrase = words(wakePhrase)
+                val heard = words.map(::letters)
+                cut = (minOf(phrase.size, heard.size) downTo 1)
+                    .firstOrNull { heard.take(it) == phrase.takeLast(it) } ?: 0
+            } else {
+                for (i in 0 until minOf(3, words.size)) {
+                    val one = letters(words[i])
+                    val two = if (i + 1 < words.size) one + letters(words[i + 1]) else ""
+                    when {
+                        one.length >= 4 && editDistance(one, "jarvis") <= 1 -> { cut = i + 1; break }
+                        two.length >= 5 && editDistance(two, "jarvis") <= 1 -> { cut = i + 2; break } // "jar vis"
+                    }
                 }
             }
             val rest = words.drop(cut).joinToString(" ").trimStart(',', '.', '!', '?', ' ')

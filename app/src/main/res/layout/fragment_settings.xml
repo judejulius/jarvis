@@ -260,8 +260,16 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Listen for &quot;Hey Jarvis&quot;"
+                    android:text="Listen for the wake word"
                     android:textColor="@color/text"
+                    tools:ignore="HardcodedText" />
+
+                <Button
+                    android:id="@+id/customWake"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Change wake phrase"
                     tools:ignore="HardcodedText" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
@@ -303,7 +311,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="64dp"
-                    android:text="For a few seconds after answering, you can carry on without saying &quot;Hey Jarvis&quot; again."
+                    android:text="For a few seconds after answering, you can carry on without repeating the wake word."
                     android:textColor="@color/text_dim"
                     android:textSize="12sp"
                     tools:ignore="HardcodedText" />

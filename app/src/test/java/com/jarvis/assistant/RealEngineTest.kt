@@ -153,6 +153,17 @@ class RealEngineTest {
     }
 
     @Test
+    fun customPhraseStartsACommandWithoutBecomingPartOfIt() {
+        installAll()
+        Settings(ctx).apply { customWakePhrase = "Hello World"; switchedOn = true }
+        playIntoMic(silence(1.5), say("Hello world, turn on the flashlight."), silence(6.0))
+        assertTrue(runService(25_000) { JarvisService.lastTask != null })
+        val task = JarvisService.lastTask!!.lowercase()
+        assertTrue(task, "flashlight" in task || "flash light" in task)
+        assertFalse(task, "world" in task || "hello" in task)
+    }
+
+    @Test
     fun oneBreathCommandIsHeardAndStarted() {
         installAll()
         playIntoMic(silence(1.5), say("Hey Jarvis, send my wife a message on WhatsApp and tell her I love her."), silence(6.0))
