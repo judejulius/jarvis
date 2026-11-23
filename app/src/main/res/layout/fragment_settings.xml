@@ -374,6 +374,24 @@
                         android:minLines="3" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Jarvis.Field"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Tips for apps"
+                    app:helperText="One per line, e.g. WhatsApp: the search icon is at the top right"
+                    app:helperTextTextColor="@color/text_dim"
+                    tools:ignore="HardcodedText">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/appTips"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="top"
+                        android:inputType="textMultiLine|textCapSentences"
+                        android:minLines="2" />
+                </com.google.android.material.textfield.TextInputLayout>
+
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/islandSwitch"
                     android:layout_width="match_parent"

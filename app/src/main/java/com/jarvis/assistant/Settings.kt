@@ -101,6 +101,11 @@ class Settings(context: Context) {
         get() = prefs.getString("notes", "")!!
         set(v) = prefs.edit().putString("notes", v).apply()
 
+    /** The user's own app tips, one per line as "App name: tip". See [com.jarvis.assistant.agent.AppTips]. */
+    var appTips: String
+        get() = prefs.getString("app_tips", "")!!
+        set(v) = prefs.edit().putString("app_tips", v).apply()
+
     /** Show the task island at the top of the screen while Jarvis works. */
     var showIsland: Boolean
         get() = prefs.getBoolean("island", true)

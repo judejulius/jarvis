@@ -80,6 +80,7 @@ Phone assistants can answer questions, but most of them can't use your apps for 
 - Runs as a foreground service, and can start at boot.
 - A setup walkthrough covers permissions, phone control, battery settings and downloads.
 - **"About you" notes** help with names, e.g. *"My wife is saved as 'Amaka' in WhatsApp."*
+- **Tips for apps** tell the model how an app is laid out, e.g. *"WhatsApp: the search icon is at the top right."* A few common apps have tips built in.
 - **Crash reports.** If the app crashes, the next launch offers a report you can share.
 
 <div align="center">
@@ -263,7 +264,7 @@ Ideas we'd love help with:
 - [x] Custom wake words. In **Settings → Listening → Wake phrase**, add an English phrase or clear it to restore the default. “Hey Jarvis” and “Jarvis” also work with a custom phrase.
 - [x] 32-bit ARM and x86_64 builds
 - [x] Task history with replay of each step. Open **Home → Task history**, choose a task, and use **Previous** and **Next** to review what happened. The latest 100 saved tasks stay on your phone. You can delete individual entries, clear the history, or turn off recording in Settings.
-- [ ] Per-app tips that help the model (e.g. "In WhatsApp, the search icon is…")
+- [x] Per-app tips that help the model. Common apps such as WhatsApp, YouTube and Gmail have built-in tips. Add your own in **Settings → About you → Tips for apps**, one per line, e.g. `WhatsApp: the search icon is at the top right`.
 - [ ] Translations of the app interface
 
 ## Contributing

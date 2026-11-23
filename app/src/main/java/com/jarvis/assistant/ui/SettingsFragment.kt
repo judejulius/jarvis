@@ -80,6 +80,7 @@ class SettingsFragment : Fragment() {
 
         // About you
         ui.notes.setText(settings.personalNotes)
+        ui.appTips.setText(settings.appTips)
         ui.maxSteps.setText(settings.maxSteps.toString())
         ui.islandSwitch.isChecked = settings.showIsland
         ui.islandSwitch.setOnCheckedChangeListener { _, v -> settings.showIsland = v }
@@ -135,6 +136,7 @@ class SettingsFragment : Fragment() {
         if (settings.voiceEngine == "kokoro") Kokoro.prerender(requireContext(), settings.kokoroSpeaker, settings.voiceSpeed)
         saveCloudFields()
         settings.personalNotes = ui.notes.text.toString()
+        settings.appTips = ui.appTips.text.toString()
         settings.maxSteps = ui.maxSteps.text.toString().toIntOrNull()?.coerceIn(5, 200) ?: 40
     }
 

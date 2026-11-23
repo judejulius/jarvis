@@ -45,6 +45,8 @@ class PhoneAgent(
 
     /** True while talking to the small model on this phone: shorter prompt, shorter screen list, no screenshots. */
     private var compact = false
+    /** Tips for the app in front, given once per app per session. */
+    private var appTips: AppTips? = null
 
     /** True once the user has said yes to a question in this task. Needed before tapping Send, Call, Pay and similar. */
     private var userConfirmed = false
@@ -115,6 +117,11 @@ class PhoneAgent(
         Log.i(TAG, "session_create=${android.os.SystemClock.elapsedRealtime() - sessionStartedAt}ms")
         host.attachSession(session)
         host.recordStep("Started phone control with $name.")
+        // A new session, including a backup model taking over, gets each app's tips again.
+        val pm = a11y.packageManager
+        appTips = AppTips(settings.appTips) { pkg ->
+            runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+        }
         val handover = if (takingOver && actionLog.isNotEmpty()) {
             "\n\nAnother assistant started this task and was interrupted. It already did these actions, in order:\n" +
                 actionLog.joinToString("\n") { "- $it" } + "\nCheck the current screen and continue from there; don't repeat anything already done (for example, don't send a message twice)."
@@ -261,10 +268,13 @@ class PhoneAgent(
 
     private fun observe(a11y: JarvisAccessibilityService): String {
         val startedAt = android.os.SystemClock.elapsedRealtime()
-        var screen = a11y.readScreen(if (compact) COMPACT_ELEMENTS else 300).text
+        val snapshot = a11y.readScreen(if (compact) COMPACT_ELEMENTS else 300)
+        var screen = snapshot.text
         if (compact && screen.length > COMPACT_SCREEN_CHARS) screen = screen.take(COMPACT_SCREEN_CHARS) + "\n(screen list shortened)\n"
         Log.i(TAG, "screen_read=${android.os.SystemClock.elapsedRealtime() - startedAt}ms chars=${screen.length}")
-        return "${OpenAiCompatibleSession.SCREEN_MARKER} ===\n$screen"
+        // Tips go before the screen marker, so they stay in the conversation when older screens are trimmed.
+        val tip = appTips?.forForeground(snapshot.foregroundPackage)?.let { "$it\n\n" }.orEmpty()
+        return "$tip${OpenAiCompatibleSession.SCREEN_MARKER} ===\n$screen"
     }
 
     private fun describe(call: ToolCall) = when (call.name) {
