@@ -240,6 +240,7 @@ app/src/main/java/com/jarvis/assistant/
 
 - **What stays on your phone:** the microphone audio, the wake word, speech recognition and the voice.
 - **What gets sent:** while a task is running, the text on your screen (and screenshots, if you turn them on) goes to the model provider you chose. If you pick a cloud voice, the sentences Jarvis speaks go to that voice provider. For full privacy, use LM Studio or Ollama and the Kokoro voice.
+- **Task history** stores action descriptions locally when **Remember what tasks I have done** is enabled. Related task titles can be shared with a cloud model if you enable cloud memory sharing. Replay steps stay on the device.
 - **API keys** are stored in the app's private storage and only sent to the provider they belong to.
 - **Safety rules.** Jarvis is told to ask before payments, purchases, deletions or security changes, to ask when a contact is ambiguous, and to treat text on screen as content, not instructions. These rules live in the prompt, and **models can still make mistakes**. Watch what it does until you trust it. You can stop a task at any time from the task island or the notification.
 
@@ -261,7 +262,7 @@ Ideas we'd love help with:
 - [ ] More languages for the wake word, speech recognition and voice
 - [x] Custom wake words. In **Settings → Listening → Wake phrase**, add an English phrase or clear it to restore the default. “Hey Jarvis” and “Jarvis” also work with a custom phrase.
 - [x] 32-bit ARM and x86_64 builds
-- [ ] Task history with replay of each step
+- [x] Task history with replay of each step. Open **Home → Task history**, choose a task, and use **Previous** and **Next** to review what happened. The latest 100 saved tasks stay on your phone. You can delete individual entries, clear the history, or turn off recording in Settings.
 - [ ] Per-app tips that help the model (e.g. "In WhatsApp, the search icon is…")
 - [ ] Translations of the app interface
 

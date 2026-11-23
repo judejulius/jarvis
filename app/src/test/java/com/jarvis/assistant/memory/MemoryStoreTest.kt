@@ -105,6 +105,82 @@ class MemoryStoreTest {
     }
 
     @Test
+    fun replayPreservesOrderAndDoesNotAddStepsToModelContext() {
+        val task = store.startTask("open maps", forContext = true)!!
+        val second = store.startTask("increase volume", forContext = false)!!
+        store.appendStep(task, "Opened Maps.")
+        store.appendStep(second, "Changed volume.")
+        store.appendStep(task, "Tapped the search button.")
+        store.appendStep(task, "My password is sensitive.")
+        store.finishTask(task, "Completed")
+        store.finishTask(second, "Cancelled")
+        store.appendStep(second, "Late callback")
+        assertEquals(listOf("Received the command.", "Opened Maps.", "Tapped the search button.", "Completed"), store.steps(task))
+        assertEquals(listOf("Received the command.", "Changed volume.", "Cancelled"), store.steps(second))
+        assertTrue(store.history().first().detail.startsWith("Cancelled"))
+        assertEquals(listOf("open maps"), store.relatedTasks("maps"))
+        assertTrue(store.relatedTasks("volume").isEmpty())
+        store.delete(MemoryStore.Kind.TASK, task)
+        store.appendStep(task, "Late write")
+        assertTrue(store.steps(task).isEmpty())
+        store.clearHistory()
+        assertTrue(store.steps(second).isEmpty())
+    }
+
+    @Test
+    fun reopeningPreservesPartialStepsAndMarksAnUnfinishedTaskInterrupted() {
+        val id = store.startTask("open settings", forContext = true)!!
+        store.appendStep(id, "Opened Settings.")
+        store.close()
+        assertTrue(store.history().single().detail.startsWith("Interrupted"))
+        assertEquals("Interrupted", store.steps(id).last())
+        assertTrue(store.relatedTasks("settings").isEmpty())
+    }
+
+    @Test
+    fun pruningAnOldTaskAlsoPrunesItsSteps() {
+        val first = store.startTask("oldest request", false)!!
+        store.appendStep(first, "First step.")
+        repeat(MemoryStore.MAX_TASKS) { store.addTask("next request $it", true) }
+        assertEquals(MemoryStore.MAX_TASKS, store.history().size)
+        assertTrue(store.steps(first).isEmpty())
+    }
+
+    @Test
+    fun disablingHistoryDiscardsNewCommandsAndTheirSteps() {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val settings = com.jarvis.assistant.Settings(ctx)
+        val history = com.jarvis.assistant.tasks.TaskHistory(ctx)
+        settings.rememberTasks = false
+        history.start(1, "private request", false)
+        history.step(1, "Private step.")
+        history.finish(1, "Completed")
+        settings.rememberTasks = true
+        history.start(2, "next request", false)
+        history.finish(2, "Completed")
+        val end = System.nanoTime() + 5_000_000_000L
+        while (store.history().none { it.detail.startsWith("Completed") } && System.nanoTime() < end) Thread.sleep(10)
+        assertEquals(listOf("next request"), store.history().map { it.title })
+        assertEquals(listOf("Received the command.", "Completed"), store.steps(store.history().single().id))
+    }
+
+    @Test
+    fun migratesTaskRowsThatPredateReplay() {
+        android.database.sqlite.SQLiteDatabase.create(null).use { db ->
+            db.execSQL("CREATE TABLE task(id INTEGER PRIMARY KEY, text TEXT NOT NULL, ok INTEGER NOT NULL, updated INTEGER NOT NULL)")
+            db.execSQL("INSERT INTO task VALUES (1, 'open maps', 1, 23)")
+            store.onUpgrade(db, 2, 3)
+            db.rawQuery("SELECT text, ok, for_context FROM task", null).use {
+                assertTrue(it.moveToFirst())
+                assertEquals("open maps", it.getString(0))
+                assertEquals(1, it.getInt(1))
+                assertEquals(1, it.getInt(2))
+            }
+            db.rawQuery("SELECT * FROM task_step", null).use { assertEquals(0, it.count) }
+        }
+    }
+
+    @Test
     fun earlierTasksAreFoundAndCanBeDeleted() {
         store.addTask("search for pizza places near me", true)
         store.addTask("open chrome", false)

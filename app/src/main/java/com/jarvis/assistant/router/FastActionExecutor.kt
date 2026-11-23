@@ -84,8 +84,10 @@ class FastActionExecutor(
      * [asker] speaks a question and returns what the user answers (null if nothing). It is used for "which one?" and
      * "call her?" questions. Without it, actions that need an answer do nothing risky.
      */
-    fun execute(cmd: FastCommand, asker: ((String) -> String?)? = null): Result = try {
-        run(cmd, asker)
+    fun execute(cmd: FastCommand, asker: ((String) -> String?)? = null): Result = execute(cmd, {}, asker)
+
+    fun execute(cmd: FastCommand, recordStep: (String) -> Unit, asker: ((String) -> String?)?): Result = try {
+        run(cmd, recordStep, asker)
     } catch (e: SecurityException) {
         Log.w(TAG, "${cmd.javaClass.simpleName} not permitted", e)
         Result(true, false, "Android didn't allow that.")
@@ -94,7 +96,7 @@ class FastActionExecutor(
         Result(true, false, "Sorry, that didn't work.")
     }
 
-    private fun run(cmd: FastCommand, asker: ((String) -> String?)?): Result = when (cmd) {
+    private fun run(cmd: FastCommand, recordStep: (String) -> Unit, asker: ((String) -> String?)?): Result = when (cmd) {
         is FastCommand.OpenApp -> openApp(cmd.query, asker)
         is FastCommand.Press -> press(cmd.key)
         is FastCommand.Scroll -> withPhoneControl { svc ->
@@ -117,7 +119,7 @@ class FastActionExecutor(
             Result(true, ok, if (ok) "The dialer is open with that number. Tap call to place it." else "I couldn't open the dialer.")
         }
         is FastCommand.CallContact -> callContact(cmd.name, asker)
-        is FastCommand.PlayYouTube -> playYouTube(cmd.query)
+        is FastCommand.PlayYouTube -> playYouTube(cmd.query, recordStep)
         is FastCommand.TapText -> withPhoneControl { svc ->
             val msg = svc.tapByText(cmd.text)
             Result(true, msg.startsWith("Tapped"), msg)
@@ -355,7 +357,7 @@ class FastActionExecutor(
      * what it could confirm: a result picked, and audio playing. YouTube may show an ad first, ask to sign in, or change
      * its screens; in those cases the answer says so instead of claiming playback.
      */
-    private fun playYouTube(rawQuery: String): Result {
+    private fun playYouTube(rawQuery: String, recordStep: (String) -> Unit): Result {
         val query = YouTubeAction.cleanQuery(rawQuery)
         val svc = a11y ?: return Result(true, false, "Please turn on phone control in the Jarvis app first.")
         val installed = installedApps().any { it.packageName == YouTubeAction.packageName }
@@ -366,14 +368,18 @@ class FastActionExecutor(
         }
         val search = Intent(Intent.ACTION_SEARCH).setPackage(YouTubeAction.packageName).putExtra(android.app.SearchManager.QUERY, query)
         if (!svc.launch(search)) return Result(true, false, "I couldn't open YouTube's search.")
+        recordStep("Requested a search in YouTube.")
         if (!svc.waitForForeground(YouTubeAction.packageName, 6_000)) {
             return Result(true, false, "I asked YouTube to search for $query, but I couldn't confirm that it opened.")
         }
+        recordStep("Opened YouTube.")
         val pick = waitForResult(svc, YouTubeAction, 8_000)
             ?: return Result(true, false, "YouTube is showing results for $query, but I couldn't pick a video myself. It's on the screen.")
+        recordStep("Found a video in the search results.")
         val tapped = svc.tap(pick.first)
         if (!tapped.startsWith("Tapped")) return Result(true, false, "I found a video but couldn't tap it.")
         val am = app.getSystemService(AudioManager::class.java)
+        recordStep("Tapped the video.")
         val title = pick.second
         return if (waitUntil(9_000) { am.isMusicActive }) Result(true, true, "Playing $title.")
         else Result(true, false, "I opened $title, but I can't confirm that it's playing. It may be loading or showing an ad.")

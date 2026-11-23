@@ -272,7 +272,7 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("stream_replies", true)
         set(v) = prefs.edit().putBoolean("stream_replies", v).apply()
 
-    /** Remember short lines about the tasks Jarvis did (the last 100), to answer "what did I ask about X?". Local only. */
+    /** Save the latest 100 eligible tasks and their replay steps on this device. */
     var rememberTasks: Boolean
         get() = prefs.getBoolean("remember_tasks", true)
         set(v) = prefs.edit().putBoolean("remember_tasks", v).apply()

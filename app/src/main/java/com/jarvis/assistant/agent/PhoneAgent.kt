@@ -18,6 +18,7 @@ import java.util.Locale
 /** How the agent talks to the person while it works. Implemented by the background service. */
 interface AgentHost {
     fun status(text: String)
+    fun recordStep(label: String) {}
     /** Speak [question] and return what the person says back, or null if they didn't answer. */
     fun ask(question: String): String?
     val isCancelled: Boolean
@@ -113,6 +114,7 @@ class PhoneAgent(
         val session = Llm.newSession(config, staticPrompt(settings.confirmSensitive, compact), toolSpecs(compact, canScreenshot))
         Log.i(TAG, "session_create=${android.os.SystemClock.elapsedRealtime() - sessionStartedAt}ms")
         host.attachSession(session)
+        host.recordStep("Started phone control with $name.")
         val handover = if (takingOver && actionLog.isNotEmpty()) {
             "\n\nAnother assistant started this task and was interrupted. It already did these actions, in order:\n" +
                 actionLog.joinToString("\n") { "- $it" } + "\nCheck the current screen and continue from there; don't repeat anything already done (for example, don't send a message twice)."
@@ -216,8 +218,18 @@ class PhoneAgent(
                     userConfirmed = SensitiveActions.isYes(answer)
                     answer?.let { "The user said: \"$it\"" } ?: "The user did not answer."
                 }
-                else -> return ToolOutput(call.id, "Unknown tool ${call.name}.", isError = true)
+                else -> {
+                    host.recordStep("The model requested an unknown action.")
+                    return ToolOutput(call.id, "Unknown tool ${call.name}.", isError = true)
+                }
             }
+            // Record the action result before observing the next screen. Never keep screen contents,
+            // screenshots, typed values, the list of installed apps, or the user's spoken answer.
+            host.recordStep(when {
+                call.name == "ask_user" -> if (message.startsWith("The user said")) "Received your answer." else "No answer received."
+                message.startsWith("Blocked:") -> "Tap blocked pending confirmation."
+                else -> message.substringBefore(" Installed apps include:").substringBefore(" It is scaled")
+            })
             val actionMs = android.os.SystemClock.elapsedRealtime() - toolStartedAt
             if (settleMs > 0) {
                 val waitStartedAt = android.os.SystemClock.elapsedRealtime()
@@ -228,6 +240,7 @@ class PhoneAgent(
             Log.i(TAG, "tool=${call.name} action=${actionMs}ms wait=${waitMs}ms total=${android.os.SystemClock.elapsedRealtime() - toolStartedAt}ms")
             ToolOutput(call.id, "$message\n\n$screen", imageJpeg = image)
         } catch (e: Exception) {
+            host.recordStep("Could not finish the ${call.name.replace('_', ' ')} step.")
             Log.w(TAG, "tool ${call.name} failed", e)
             ToolOutput(call.id, "Failed: ${e.message}\n\n${observe(a11y)}", isError = true)
         }

@@ -6,12 +6,12 @@ import android.database.Cursor
 import android.database.SQLException
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.core.database.sqlite.transaction
 import com.jarvis.assistant.router.AppMatcher
 
 /**
- * Jarvis's persistent memory, kept in a private SQLite file on the phone: app names the user taught it, and notes the
- * user explicitly asked it to remember. Nothing is stored unless the user said so, and nothing leaves the phone from
- * here. Call these methods from a worker thread, not the main thread.
+ * Private SQLite storage for taught app names, notes and task history. Replay steps are read by the history
+ * screen. Only eligible task titles can enter a model prompt. Call database methods from a worker thread.
  */
 class MemoryStore private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DB_NAME, null, DB_VERSION) {
@@ -33,6 +33,7 @@ class MemoryStore private constructor(context: Context) :
                 "updated INTEGER NOT NULL)",
         )
         createTaskTable(db)
+        addReplaySchema(db)
         try {
             db.execSQL("CREATE VIRTUAL TABLE fact_fts USING fts4(text)")
         } catch (_: SQLException) {
@@ -42,13 +43,30 @@ class MemoryStore private constructor(context: Context) :
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createTaskTable(db)
+        if (oldVersion < 3) addReplaySchema(db)
     }
 
     private fun createTaskTable(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS task(id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, ok INTEGER NOT NULL, updated INTEGER NOT NULL)")
     }
 
+    private fun addReplaySchema(db: SQLiteDatabase) {
+        // Older entries have only their command and outcome. Keep them available in history.
+        db.execSQL("ALTER TABLE task ADD COLUMN state TEXT")
+        db.execSQL("ALTER TABLE task ADD COLUMN for_context INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("CREATE TABLE task_step(id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES task(id) ON DELETE CASCADE, label TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX task_step_order ON task_step(task_id, id)")
+    }
+
+    override fun onConfigure(db: SQLiteDatabase) {
+        db.setForeignKeyConstraintsEnabled(true)
+    }
+
     override fun onOpen(db: SQLiteDatabase) {
+        db.transaction {
+            execSQL("INSERT INTO task_step(task_id,label) SELECT id,'Interrupted' FROM task WHERE state = 'Running'")
+            execSQL("UPDATE task SET state = 'Interrupted' WHERE state = 'Running'")
+        }
         ftsReady = db.rawQuery("SELECT name FROM sqlite_master WHERE name = 'fact_fts'", null).use { it.moveToFirst() }
     }
 
@@ -177,12 +195,63 @@ class MemoryStore private constructor(context: Context) :
 
     /** Remembers that a task was done (a short, cleaned line). Only the most recent [MAX_TASKS] are kept. */
     fun addTask(text: String, ok: Boolean) {
-        val clean = MemoryPrompt.sanitize(text, 80)
-        if (clean.length < 3 || SensitiveFilter.isSensitive(clean)) return
-        val db = writableDatabase
-        db.execSQL("INSERT INTO task(text, ok, updated) VALUES (?, ?, ?)", arrayOf(clean, if (ok) 1 else 0, System.currentTimeMillis()))
-        db.execSQL("DELETE FROM task WHERE id NOT IN (SELECT id FROM task ORDER BY id DESC LIMIT $MAX_TASKS)")
+        if (MemoryPrompt.sanitize(text, 80).length >= 3) insertTask(text, ok, state = null, forContext = true)
     }
+
+    fun startTask(text: String, forContext: Boolean): Long? =
+        insertTask(text, ok = false, state = "Running", forContext = forContext)
+
+    private fun insertTask(text: String, ok: Boolean, state: String?, forContext: Boolean): Long? {
+        val clean = MemoryPrompt.sanitize(text, 80)
+        if (clean.isEmpty() || SensitiveFilter.isSensitive(text) || SensitiveFilter.isSensitive(clean)) return null
+        val values = ContentValues().apply {
+            put("text", clean)
+            put("ok", ok)
+            put("updated", System.currentTimeMillis())
+            put("state", state)
+            put("for_context", forContext)
+        }
+        return writableDatabase.transaction {
+            val id = insertOrThrow("task", null, values)
+            if (state == "Running") appendStep(id, "Received the command.")
+            execSQL("DELETE FROM task WHERE id NOT IN (SELECT id FROM task ORDER BY id DESC LIMIT $MAX_TASKS)")
+            id
+        }
+    }
+
+    fun appendStep(id: Long, label: String) {
+        val clean = MemoryPrompt.sanitize(label, 160)
+        if (clean.isBlank() || SensitiveFilter.isSensitive(label)) return
+        // A user can delete an entry while its task is still running.
+        writableDatabase.execSQL("INSERT INTO task_step(task_id, label) SELECT id, ? FROM task WHERE id = ? AND state = 'Running'", arrayOf(clean, id))
+    }
+
+    fun finishTask(id: Long, state: String) {
+        writableDatabase.transaction {
+            appendStep(id, state)
+            execSQL("UPDATE task SET state = ?, ok = ? WHERE id = ? AND state = 'Running'",
+                arrayOf(state, if (state == "Completed") 1 else 0, id))
+        }
+    }
+
+    fun steps(id: Long): List<String> = readableDatabase.rawQuery(
+        "SELECT label FROM task_step WHERE task_id = ? ORDER BY id", arrayOf(id.toString())
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+
+    fun history(limit: Int = MAX_TASKS): List<Item> = readableDatabase.rawQuery(
+        "SELECT id, text, COALESCE(state, CASE ok WHEN 1 THEN 'Completed' ELSE 'Failed' END), updated FROM task ORDER BY id DESC LIMIT ?",
+        arrayOf(limit.toString())
+    ).use { cursor ->
+        val date = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+        buildList {
+            while (cursor.moveToNext()) {
+                val whenStarted = date.format(java.util.Date(cursor.getLong(3)))
+                add(Item(Kind.TASK, cursor.getLong(0), cursor.getString(1), "${cursor.getString(2)} · $whenStarted"))
+            }
+        }
+    }
+
+    fun clearHistory() { writableDatabase.delete("task", null, null) }
 
     /** Earlier tasks that share words with [query], newest first. */
     fun relatedTasks(query: String, limit: Int = 3): List<String> {
@@ -190,7 +259,7 @@ class MemoryStore private constructor(context: Context) :
         if (terms.isEmpty()) return emptyList()
         val where = terms.joinToString(" OR ") { "lower(text) LIKE ?" }
         val args = terms.map { "%$it%" } + limit.toString()
-        return readableDatabase.rawQuery("SELECT text, ok FROM task WHERE ($where) ORDER BY id DESC LIMIT ?", args.toTypedArray()).use {
+        return readableDatabase.rawQuery("SELECT text, ok FROM task WHERE for_context = 1 AND (state IS NULL OR state IN ('Completed','Failed')) AND ($where) ORDER BY id DESC LIMIT ?", args.toTypedArray()).use {
             val l = ArrayList<String>()
             while (it.moveToNext()) l += it.getString(0) + if (it.getInt(1) == 1) "" else " (did not work)"
             l
@@ -208,9 +277,7 @@ class MemoryStore private constructor(context: Context) :
         db.rawQuery("SELECT id, text, style FROM fact ORDER BY updated DESC", null).use {
             while (it.moveToNext()) items += Item(Kind.FACT, it.getLong(0), it.getString(1), if (it.getInt(2) == 1) "How to answer" else "Note")
         }
-        db.rawQuery("SELECT id, text, ok FROM task ORDER BY id DESC LIMIT 30", null).use {
-            while (it.moveToNext()) items += Item(Kind.TASK, it.getLong(0), it.getString(1), if (it.getInt(2) == 1) "Earlier task" else "Earlier task (did not work)")
-        }
+        items += history(30)
         return items
     }
 
@@ -304,7 +371,7 @@ class MemoryStore private constructor(context: Context) :
 
     companion object {
         private const val DB_NAME = "jarvis_memory.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
         const val MAX_FACTS = 300
         const val MAX_TASKS = 100
 

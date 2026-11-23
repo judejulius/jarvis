@@ -1,5 +1,6 @@
 package com.jarvis.assistant.ui
 
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -11,6 +12,7 @@ import androidx.fragment.app.Fragment
 import com.jarvis.assistant.CrashReporter
 import com.jarvis.assistant.R
 import com.jarvis.assistant.Settings
+import com.jarvis.assistant.memory.MemoryActivity
 import com.jarvis.assistant.databinding.FragmentHomeBinding
 import com.jarvis.assistant.service.JarvisService
 import com.jarvis.assistant.service.JarvisService.Companion.Phase
@@ -30,6 +32,9 @@ class HomeFragment : Fragment() {
         }
         ui.abortButton.setOnClickListener { if (JarvisService.running) startJarvis(JarvisService.ACTION_STOP_TASK) }
         ui.talkButton.setOnClickListener { startJarvis(JarvisService.ACTION_LISTEN) }
+        ui.historyButton.setOnClickListener {
+            startActivity(Intent(requireContext(), MemoryActivity::class.java).putExtra(MemoryActivity.EXTRA_HISTORY, true))
+        }
         ui.sendButton.setOnClickListener { runTypedCommand() }
         ui.commandInput.setOnEditorActionListener { _, id, _ ->
             if (id == EditorInfo.IME_ACTION_SEND) { runTypedCommand(); true } else false

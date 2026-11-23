@@ -41,6 +41,7 @@ import com.jarvis.assistant.persona.GreetingStore
 import com.jarvis.assistant.persona.Persona
 import com.jarvis.assistant.runtime.EmbeddedRuntime
 import com.jarvis.assistant.tasks.Interrupt
+import com.jarvis.assistant.tasks.TaskHistory
 import com.jarvis.assistant.tasks.TaskBoard
 import com.jarvis.assistant.tasks.TaskControl
 import com.jarvis.assistant.tasks.TaskType
@@ -92,6 +93,7 @@ class JarvisService : Service() {
 
     // ---- Tasks: what is running, what was cancelled, what must not run twice ----
     private val board = TaskBoard(now = { SystemClock.elapsedRealtime() })
+    private val history by lazy { TaskHistory(this) }
     private val idCounter = AtomicInteger(0)
 
     /** Only one task at a time may drive the screen. A task that replaces another waits briefly for it to let go. */
@@ -252,6 +254,7 @@ class JarvisService : Service() {
             google.cancel()
             speaker.shutdown()
         }
+        history.interruptAll()
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -497,6 +500,7 @@ class JarvisService : Service() {
                     }
                 } else null
                 streamerFor = streamer?.let { id to it }
+                history.step(id, "Requested an answer from ${profile.name}.")
                 val turn = try {
                     session.send(message, emptyList()) { delta -> streamer?.onDelta(delta) }
                 } finally {
@@ -509,6 +513,7 @@ class JarvisService : Service() {
 
                 val reply = turn.text.trim()
                 if (reply.isNotBlank()) {
+                    history.step(id, "Received the answer.")
                     aiRouter.report(profile, true)
                     streamer?.finish()
                     return AgentResult(true, reply)
@@ -517,6 +522,7 @@ class JarvisService : Service() {
 
                 lastError = turn.stopNote ?: "${profile.name} returned an empty reply"
             } catch (e: Throwable) {
+                history.step(id, "The model request failed.")
                 if (isStale(id)) {
                     return AgentResult(false, "Okay, I stopped.")
                 }
@@ -572,6 +578,7 @@ class JarvisService : Service() {
      */
     private fun cancelForeground(): String? {
         val outcome = board.foreground()?.let { board.cancel(it.id) }
+        outcome?.let { history.finish(it.task.id, "Cancelled") }
         cancelled = true
         taskId++ // anything still working for the old foreground id is now stale
         activeSession?.cancel()
@@ -625,7 +632,10 @@ class JarvisService : Service() {
     private fun handleBackground(then: String?) {
         val fg = board.foreground()
         val moved = fg != null && board.moveToBackground(fg.id)
-        if (moved) cancelAck()
+        if (moved) {
+            history.step(fg.id, "Moved to the background.")
+            cancelAck()
+        }
         interruptedWork = false
         heldDelivery = null
         when {
@@ -706,6 +716,7 @@ class JarvisService : Service() {
         val decision = Interrupt.forNewTask(type, board.foreground())
         decision.cancel?.let { replaced ->
             board.cancel(replaced.id)
+            history.finish(replaced.id, "Cancelled")
             activeSession?.cancel()
             activeSession = null
             cancelAck()
@@ -713,6 +724,8 @@ class JarvisService : Service() {
         }
         val id = idCounter.incrementAndGet()
         board.start(id, task, type)
+        val keep = memoryIntent == null && fast !is FastCommand.TypeText && fast !is FastCommand.Dial && fast !is FastCommand.CallContact
+        if (keep) history.start(id, task, forContext = type != TaskType.INSTANT)
         if (type != TaskType.INSTANT) {
             taskId = id
             cancelled = false
@@ -742,7 +755,7 @@ class JarvisService : Service() {
                     } else {
                         withUi(type == TaskType.PHONE, busy) {
                             if (needsUnlock(fast!!)) waitForUnlock(id)
-                            fastActions.execute(fast) { question -> hostFor(id).ask(question) }
+                            fastActions.execute(fast, recordStep = { history.step(id, it) }) { question -> hostFor(id).ask(question) }
                         }
                     }
                 } catch (e: Throwable) {
@@ -752,13 +765,14 @@ class JarvisService : Service() {
                 trace.mark("acted")
                 if (outcome.irreversible) board.markIrreversible(id)
                 if (!outcome.handled) {
+                    history.step(id, "The direct command could not handle this request. Trying phone control.")
                     // Not something Jarvis can do directly (an app it cannot find, say): the model gets it, as it always did.
                     if (fast is FastCommand.OpenApp) failedApp = fast.query to SystemClock.elapsedRealtime()
                     main.post { if (!isStale(id) && !destroyed) runModelTask(task, id, TaskType.PHONE) }
                     return@execute
                 }
+                history.step(id, outcome.message)
                 val message = learnFromRetry(outcome)
-                val keep = memoryIntent == null && fast !is FastCommand.TypeText && fast !is FastCommand.Dial && fast !is FastCommand.CallContact
                 main.post { deliver(task, id, AgentResult(outcome.success, message), keepInHistory = keep, via = "instant") }
             }
             return
@@ -841,6 +855,8 @@ class JarvisService : Service() {
         cancelAck()
         val tracked = board.get(id)
         board.finish(id, result0.success, result0.summary)
+        if (!result0.success && via == "model") history.step(id, result0.summary)
+        history.finish(id, if (result0.success) "Completed" else "Failed")
         when {
             // Finished while the user moved on: say so when Jarvis is free, without taking over the conversation.
             tracked?.background == true -> { announceBackground(tracked.text, result0); return }
@@ -860,10 +876,6 @@ class JarvisService : Service() {
 
     private fun deliverNow(task: String, id: Int, result0: AgentResult, keepInHistory: Boolean, via: String) {
         if (destroyed || isStale(id)) return
-        // A short line about the task, so Jarvis can later answer "what did I ask about X?". Not for instant commands.
-        if (keepInHistory && settings.rememberTasks && board.get(id)?.type != TaskType.INSTANT) {
-            worker.execute { runCatching { memoryStore.addTask(task, result0.success) } }
-        }
         // The first interaction of the day carries a greeting: "Good morning, sir. Opened YouTube."
         val streamer = streamerFor?.takeIf { it.first == id }?.second
         streamerFor = null
@@ -956,6 +968,7 @@ class JarvisService : Service() {
     /** Bridges the agent (worker thread) to the voice UI (main thread) for task [id]. */
     private fun hostFor(id: Int) = object : AgentHost {
         override val isCancelled get() = isStale(id)
+        override fun recordStep(label: String) = history.step(id, label)
         override fun onIrreversible() {
             board.markIrreversible(id)
         }
