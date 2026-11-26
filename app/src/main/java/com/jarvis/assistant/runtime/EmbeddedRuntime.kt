@@ -7,6 +7,11 @@ import com.jarvis.assistant.Settings
 import com.jarvis.assistant.ai.Connectivity
 import com.jarvis.assistant.ai.ServerHealth
 import java.io.File
+import java.net.Proxy
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -30,6 +35,21 @@ class EmbeddedRuntime private constructor(context: Context) {
     private val downloadRunning = AtomicBoolean(false)
 
     @Volatile private var process: Process? = null
+    @Volatile private var socketFile: File? = null
+    @Volatile private var serviceActive = false
+    private val socketFactory = RuntimeSocketFactory { socketFile?.path?.takeIf { process?.isAlive == true } }
+    internal val client = OkHttpClient.Builder()
+        .proxy(Proxy.NO_PROXY)
+        .dns(object : okhttp3.Dns {
+            override fun lookup(hostname: String) = listOf(java.net.InetAddress.getLoopbackAddress())
+        })
+        .socketFactory(socketFactory)
+        .followRedirects(false)
+        .retryOnConnectionFailure(false)
+        .build()
+
+    fun attachService() { synchronized(lock) { serviceActive = true } }
+
     @Volatile private var supervisor: Thread? = null
     @Volatile private var lastUse = SystemClock.elapsedRealtime()
     @Volatile private var crashes = 0
@@ -55,9 +75,9 @@ class EmbeddedRuntime private constructor(context: Context) {
 
     fun hasModel(): Boolean = GgufDownloader("https://invalid.example/", modelFile()).isComplete()
 
-    fun baseUrl(): String = "http://127.0.0.1:${RuntimeConfig.PORT}/v1"
+    fun baseUrl(): String = "http://localhost/v1"
 
-    fun apiKey(): String = settings.runtimeApiKey.ifBlank { RuntimeConfig.newApiKey().also { settings.runtimeApiKey = it } }
+    @Synchronized fun apiKey(): String = settings.runtimeApiKey.ifBlank { RuntimeConfig.newApiKey().also { settings.runtimeApiKey = it } }
 
     /** Marks the runtime as in use now, so the idle timer starts over. */
     fun touch() {
@@ -126,30 +146,47 @@ class EmbeddedRuntime private constructor(context: Context) {
         if (health() == ServerHealth.State.OK) { if (status.phase != Phase.RUNNING) set(Status(Phase.RUNNING)); return true }
         val bin = binary() ?: run { set(Status(Phase.NO_BINARY, "This build has no on-device runtime.")); return false }
         if (!hasModel()) { set(Status(Phase.NO_MODEL, status.detail)); return false }
-        synchronized(lock) {
-            if (health() == ServerHealth.State.OK) return true // someone else just started it
+        val child = synchronized(lock) {
+            if (!serviceActive) return false
             if (RuntimePolicy.giveUp(crashes)) {
                 set(Status(Phase.FAILED, "The on-device model keeps crashing. See ${logFile().name} in the app's files."))
                 return false
             }
-            if (process?.isAlive != true) spawn(bin) ?: return false
-            return waitUntilHealthy(timeoutMs)
+            process?.takeIf { it.isAlive } ?: spawn(bin) ?: return false
         }
+        return waitUntilHealthy(child, timeoutMs)
     }
 
-    fun health(timeoutMs: Int = 600): ServerHealth.State = ServerHealth.check("http://127.0.0.1:${RuntimeConfig.PORT}", timeoutMs)
+    fun health(timeoutMs: Int = 600): ServerHealth.State {
+        val child = process ?: return ServerHealth.State.DOWN
+        if (!child.isAlive) return ServerHealth.State.DOWN
+        return runCatching {
+            val call = client.newCall(Request.Builder().url("http://localhost/health").build())
+            call.timeout().timeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            call.execute().use {
+                when {
+                    process !== child || !child.isAlive -> ServerHealth.State.DOWN
+                    it.code == 200 -> ServerHealth.State.OK
+                    it.code == 503 -> ServerHealth.State.LOADING
+                    else -> ServerHealth.State.DOWN
+                }
+            }
+        }.getOrDefault(ServerHealth.State.DOWN)
+    }
 
     private fun spawn(bin: File): Process? {
         set(Status(Phase.STARTING, "Starting the on-device model"))
+        socketFile?.delete()
+        val socket = File(app.filesDir, "model-${UUID.randomUUID()}.sock")
         val cmd = listOf(bin.path) + RuntimeConfig.args(
-            modelFile().path, RuntimeConfig.PORT, apiKey(), RuntimeConfig.threadsFor(Runtime.getRuntime().availableProcessors()),
+            modelFile().path, socket.path, apiKey(), RuntimeConfig.threadsFor(Runtime.getRuntime().availableProcessors()),
         )
         return try {
             val pb = ProcessBuilder(cmd).redirectErrorStream(true).directory(app.filesDir)
             pb.environment()["LD_LIBRARY_PATH"] = app.applicationInfo.nativeLibraryDir
             val p = pb.start()
+            socketFile = socket
             process = p
-            writePid(p)
             drainToLog(p)
             startSupervisor()
             p
@@ -161,11 +198,19 @@ class EmbeddedRuntime private constructor(context: Context) {
         }
     }
 
-    private fun waitUntilHealthy(timeoutMs: Long): Boolean {
+    private fun waitUntilHealthy(child: Process, timeoutMs: Long): Boolean {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         try {
             while (SystemClock.elapsedRealtime() < deadline) {
-                if (health() == ServerHealth.State.OK) { crashes = 0; set(Status(Phase.RUNNING)); return true }
+                if (process !== child) return false
+                if (health() == ServerHealth.State.OK) {
+                    synchronized(lock) {
+                        if (process !== child) return false
+                        crashes = 0
+                        set(Status(Phase.RUNNING))
+                        return true
+                    }
+                }
                 if (process?.isAlive != true) {
                     crashes++
                     set(Status(Phase.FAILED, "The on-device model stopped while starting. ${lastLogLine()}"))
@@ -201,33 +246,39 @@ class EmbeddedRuntime private constructor(context: Context) {
                             if (RuntimePolicy.giveUp(crashes)) { set(Status(Phase.FAILED, "The on-device model keeps crashing.")); return@Thread }
                             Log.w(TAG, "server exited: restarting (crash $crashes)")
                             Thread.sleep(RuntimePolicy.restartDelayMs(crashes))
-                            synchronized(lock) { binary()?.let { if (process?.isAlive != true) spawn(it) } }
+                            synchronized(lock) {
+                                if (Thread.currentThread() !== supervisor || !serviceActive) return@Thread
+                                binary()?.let { if (process?.isAlive != true) spawn(it) }
+                            }
                         }
                     }
                 }
             } catch (_: InterruptedException) {
                 // stopped on purpose
             }
-        }, "jarvis-runtime-supervisor").apply { isDaemon = true; start() }
+        }, "jarvis-runtime-supervisor").apply { isDaemon = true }
+        supervisor?.start()
     }
 
     /** Stops the server and frees its memory. It starts again on the next use. */
-    fun stop(reason: String = "requested") {
+    fun stop(reason: String = "requested", detach: Boolean = false) {
         synchronized(lock) {
             Log.i(TAG, "stopping the on-device runtime ($reason)")
-            process?.destroy()
+            if (detach) serviceActive = false
+            supervisor?.interrupt()
+            supervisor = null
+            process?.destroyForcibly()
             process = null
-            killRecordedPid()
+            socketFile?.delete()
+            socketFile = null
+            client.connectionPool.evictAll()
             if (status.phase != Phase.DOWNLOADING) set(Status(if (hasModel()) Phase.STOPPED else Phase.NO_MODEL))
         }
-        supervisor?.interrupt()
-        supervisor = null
     }
 
     // ---- bookkeeping ----
 
     private fun logFile() = File(app.filesDir, "llama.log")
-    private fun pidFile() = File(app.filesDir, "llama.pid")
 
     private fun lastLogLine(): String = runCatching { logFile().readLines().lastOrNull { it.isNotBlank() }.orEmpty().take(160) }.getOrDefault("")
 
@@ -242,21 +293,6 @@ class EmbeddedRuntime private constructor(context: Context) {
                 // process ended
             }
         }, "jarvis-runtime-log").apply { isDaemon = true; start() }
-    }
-
-    /** Remembers the child's process id (Android 13+), so a server left over from a killed app can be stopped. */
-    private fun writePid(p: Process) {
-        runCatching {
-            val pid = Process::class.java.getMethod("pid").invoke(p) as Long
-            pidFile().writeText(pid.toString())
-        }
-    }
-
-    private fun killRecordedPid() {
-        runCatching {
-            val f = pidFile()
-            if (f.isFile) { android.os.Process.killProcess(f.readText().trim().toInt()); f.delete() }
-        }
     }
 
     companion object {

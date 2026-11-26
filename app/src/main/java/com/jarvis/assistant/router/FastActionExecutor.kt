@@ -84,10 +84,10 @@ class FastActionExecutor(
      * [asker] speaks a question and returns what the user answers (null if nothing). It is used for "which one?" and
      * "call her?" questions. Without it, actions that need an answer do nothing risky.
      */
-    fun execute(cmd: FastCommand, asker: ((String) -> String?)? = null): Result = execute(cmd, {}, asker)
+    fun execute(cmd: FastCommand, asker: ((String) -> String?)? = null): Result = execute(cmd, {}, { true }, asker)
 
-    fun execute(cmd: FastCommand, recordStep: (String) -> Unit, asker: ((String) -> String?)?): Result = try {
-        run(cmd, recordStep, asker)
+    fun execute(cmd: FastCommand, recordStep: (String) -> Unit, canAct: () -> Boolean = { true }, asker: ((String) -> String?)?): Result = try {
+        if (!canAct()) Result(true, false, "Task stopped.") else run(cmd, recordStep, canAct, asker)
     } catch (e: SecurityException) {
         Log.w(TAG, "${cmd.javaClass.simpleName} not permitted", e)
         Result(true, false, "Android didn't allow that.")
@@ -96,8 +96,8 @@ class FastActionExecutor(
         Result(true, false, "Sorry, that didn't work.")
     }
 
-    private fun run(cmd: FastCommand, recordStep: (String) -> Unit, asker: ((String) -> String?)?): Result = when (cmd) {
-        is FastCommand.OpenApp -> openApp(cmd.query, asker)
+    private fun run(cmd: FastCommand, recordStep: (String) -> Unit, canAct: () -> Boolean, asker: ((String) -> String?)?): Result = when (cmd) {
+        is FastCommand.OpenApp -> openApp(cmd.query, canAct, asker)
         is FastCommand.Press -> press(cmd.key)
         is FastCommand.Scroll -> withPhoneControl { svc ->
             val msg = svc.scroll(null, cmd.direction)
@@ -118,11 +118,11 @@ class FastActionExecutor(
             val ok = startIntent(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(cmd.number))))
             Result(true, ok, if (ok) "The dialer is open with that number. Tap call to place it." else "I couldn't open the dialer.")
         }
-        is FastCommand.CallContact -> callContact(cmd.name, asker)
-        is FastCommand.PlayYouTube -> playYouTube(cmd.query, recordStep)
+        is FastCommand.CallContact -> callContact(cmd.name, canAct, asker)
+        is FastCommand.PlayYouTube -> if (settings.aiMode == AiMode.OFFLINE) Result(true, false, "YouTube search requires an online mode.") else playYouTube(cmd.query, recordStep, canAct)
         is FastCommand.TapText -> withPhoneControl { svc ->
-            val msg = svc.tapByText(cmd.text)
-            Result(true, msg.startsWith("Tapped"), msg)
+            val msg = svc.tapByText(cmd.text, canAct)
+            Result(true, msg.startsWith("Tapped"), msg, irreversible = msg == "Tapped by you.")
         }
         is FastCommand.TypeText -> withPhoneControl { svc ->
             val msg = try { svc.typeText(null, cmd.text, false) } catch (e: IllegalStateException) { e.message ?: "No text field is focused." }
@@ -157,7 +157,7 @@ class FastActionExecutor(
         return list
     }
 
-    private fun openApp(query: String, asker: ((String) -> String?)?): Result {
+    private fun openApp(query: String, canAct: () -> Boolean, asker: ((String) -> String?)?): Result {
         val m = AppMatcher.match(query, installedApps()) { phrase -> runCatching { memory()?.appAlias(phrase) }.getOrNull() }
         val entry = m.app
         if (entry == null) {
@@ -171,9 +171,11 @@ class FastActionExecutor(
         if (m.how == "sound" && asker != null) {
             val answer = asker("Did you mean ${entry.label}?")
             if (!SensitiveActions.isYes(answer)) return Result(true, true, "Okay, I won't open it.")
+            if (!canAct()) return Result(true, false, "Task stopped.")
             learnAlias(query, entry)
         }
         val svc = a11y
+        if (!canAct()) return Result(true, false, "Task stopped.")
         val started = if (svc != null) svc.openPackage(entry.packageName, entry.activity) else startLaunchIntent(entry.packageName)
         if (!started) return Result(true, false, "I couldn't open ${entry.label}.", entry, m.how)
         if (svc == null) {
@@ -287,6 +289,7 @@ class FastActionExecutor(
     // ---- Search, settings, clock ----
 
     private fun webSearch(cmd: FastCommand.WebSearch): Result {
+        if (settings.aiMode == AiMode.OFFLINE) return Result(true, false, "Web search requires an online mode.")
         val q = URLEncoder.encode(cmd.query, "UTF-8")
         val youtube = cmd.site == "youtube"
         val url = if (youtube) "https://www.youtube.com/results?search_query=$q" else "https://www.google.com/search?q=$q"
@@ -357,7 +360,7 @@ class FastActionExecutor(
      * what it could confirm: a result picked, and audio playing. YouTube may show an ad first, ask to sign in, or change
      * its screens; in those cases the answer says so instead of claiming playback.
      */
-    private fun playYouTube(rawQuery: String, recordStep: (String) -> Unit): Result {
+    private fun playYouTube(rawQuery: String, recordStep: (String) -> Unit, canAct: () -> Boolean): Result {
         val query = YouTubeAction.cleanQuery(rawQuery)
         val svc = a11y ?: return Result(true, false, "Please turn on phone control in the Jarvis app first.")
         val installed = installedApps().any { it.packageName == YouTubeAction.packageName }
@@ -376,7 +379,8 @@ class FastActionExecutor(
         val pick = waitForResult(svc, YouTubeAction, 8_000)
             ?: return Result(true, false, "YouTube is showing results for $query, but I couldn't pick a video myself. It's on the screen.")
         recordStep("Found a video in the search results.")
-        val tapped = svc.tap(pick.first)
+        if (!canAct()) return Result(true, false, "Task stopped.")
+        val tapped = svc.tapVideoResult(pick.first, pick.second)
         if (!tapped.startsWith("Tapped")) return Result(true, false, "I found a video but couldn't tap it.")
         val am = app.getSystemService(AudioManager::class.java)
         recordStep("Tapped the video.")
@@ -407,7 +411,7 @@ class FastActionExecutor(
         startIntent(PermissionActivity.intent(app))
     }
 
-    private fun callContact(name: String, asker: ((String) -> String?)?): Result {
+    private fun callContact(name: String, canAct: () -> Boolean, asker: ((String) -> String?)?): Result {
         if (!resolver.hasContactsPermission()) {
             askForPermissions()
             return Result(true, false, "I need permission to read your contacts before I can call $name. I've opened the permission screen.")
@@ -431,9 +435,10 @@ class FastActionExecutor(
         val weak = match.how in setOf("fuzzy", "sound", "prefix")
         if (settings.confirmSensitive || weak) {
             if (asker == null) return dialInstead(contact, number)
-            val answer = asker("Call ${ContactMatcher.describe(contact, number)}?")
+            val answer = asker("Call ${ContactMatcher.describe(contact, number)} at ${number.number}?")
             if (!SensitiveActions.isYes(answer)) return Result(true, true, "Okay, I won't call.")
         }
+        if (!canAct()) return Result(true, false, "Task stopped.")
         return placeCall(contact, number)
     }
 

@@ -19,10 +19,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * server). Asks for raw PCM and plays it as it streams in, so Jarvis starts talking within a moment
  * instead of waiting for the whole clip.
  */
-class CloudVoice {
+class CloudVoice(client: OkHttpClient = OkHttpClient()) {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "cloud-voice") }
-    private val http = OkHttpClient.Builder()
+    private val http = client.newBuilder()
+        .followRedirects(false)
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
@@ -117,6 +118,11 @@ class CloudVoice {
 
     /** Builds the provider's request for raw 16-bit mono PCM. Returns the request and its sample rate. */
     private fun request(c: CloudVoiceConfig, text: String, speed: Float): Pair<Request, Int> {
+        val preset = com.jarvis.assistant.CLOUD_VOICES.first { it.id == c.id }
+        require(com.jarvis.assistant.ai.Endpoints.secure(c.baseUrl) &&
+            (preset.editableUrl || com.jarvis.assistant.ai.Endpoints.sameOrigin(c.baseUrl, preset.defaultBaseUrl))) {
+            "Use a trusted HTTPS voice endpoint."
+        }
         val json = "application/json".toMediaType()
         return when (c.id) {
             "elevenlabs" -> {

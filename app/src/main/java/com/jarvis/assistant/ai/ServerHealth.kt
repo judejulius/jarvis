@@ -14,6 +14,7 @@ object ServerHealth {
         return try {
             val c = URL("$origin/health").openConnection() as HttpURLConnection
             conn = c
+            c.instanceFollowRedirects = false
             c.connectTimeout = timeoutMs
             c.readTimeout = timeoutMs
             c.useCaches = false

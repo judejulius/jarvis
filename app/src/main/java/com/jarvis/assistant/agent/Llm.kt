@@ -1,6 +1,7 @@
 package com.jarvis.assistant.agent
 
 import com.jarvis.assistant.ApiKind
+import com.jarvis.assistant.ai.Endpoints
 import com.jarvis.assistant.ProviderConfig
 import org.json.JSONObject
 
@@ -55,9 +56,11 @@ object Llm {
         return turn.text.ifBlank { if (turn.toolCalls.isNotEmpty()) "OK (tool call)" else turn.stopNote ?: "OK" }
     }
 
-    fun newSession(config: ProviderConfig, system: String, tools: List<ToolSpec>): ChatSession =
-        when (config.preset.kind) {
+    fun newSession(config: ProviderConfig, system: String, tools: List<ToolSpec>): ChatSession {
+        require(config.runtimeClient != null || Endpoints.secure(config.baseUrl)) { "Update this model to use HTTPS before connecting." }
+        return when (config.preset.kind) {
             ApiKind.ANTHROPIC -> AnthropicSession(config, system, tools)
             ApiKind.OPENAI_COMPATIBLE -> OpenAiCompatibleSession(config, system, tools)
         }
+    }
 }

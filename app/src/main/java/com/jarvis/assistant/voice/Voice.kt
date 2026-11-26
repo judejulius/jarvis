@@ -3,6 +3,8 @@ package com.jarvis.assistant.voice
 import android.content.Context
 import com.jarvis.assistant.CLOUD_VOICES
 import com.jarvis.assistant.Settings
+import com.jarvis.assistant.ai.AiMode
+import com.jarvis.assistant.ai.Endpoints
 
 interface VoiceEngine {
     /** Speak [text], replacing anything currently being said. [onDone] runs on the main thread. */
@@ -22,6 +24,7 @@ class Speaker(context: Context) {
     private val cloud by lazy { CloudVoice() }
     private var usedSystem = false
     private var usedCloud = false
+    private var configurationError: String? = null
     /** Whether the current speech can report its loudness (everything except Android's voice). */
     @Volatile private var measurable = false
 
@@ -36,20 +39,26 @@ class Speaker(context: Context) {
 
     /** The last problem with the chosen voice, for Settings. */
     val lastError: String?
-        get() = if (cloudConfig() != null || settings.voiceEngine in CLOUD_VOICES.map { it.id }) cloud.lastError else Kokoro.lastError
+        get() = configurationError ?: if (cloudConfig() != null || settings.voiceEngine in CLOUD_VOICES.map { it.id }) cloud.lastError else Kokoro.lastError
 
     fun speak(text: String, onDone: () -> Unit = {}) {
         val config = cloudConfig()
-        if (config != null) {
+        configurationError = null
+        if (settings.aiMode == AiMode.OFFLINE) {
+            if (kokoroReady) Kokoro.speak(app, text, settings.kokoroSpeaker, settings.voiceSpeed, onDone)
+            else android.os.Handler(android.os.Looper.getMainLooper()).post(onDone)
+        } else if (config != null && Endpoints.secure(config.baseUrl)) {
             usedCloud = true
             measurable = true
             cloud.speak(config, text, settings.voiceSpeed, onDone) { speakLocally(text, onDone) }
         } else {
+            if (config != null) configurationError = "Update the voice server address to use HTTPS."
             speakLocally(text, onDone)
         }
     }
 
     private fun speakLocally(text: String, onDone: () -> Unit) {
+        if (settings.aiMode == AiMode.OFFLINE) { speak(text, onDone); return }
         // Kokoro when chosen, or as the fallback for a cloud voice; otherwise Android's voice.
         if (kokoroReady && settings.voiceEngine != "system") {
             measurable = true

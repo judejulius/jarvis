@@ -2,7 +2,8 @@ package com.jarvis.assistant.agent
 
 import android.util.Base64
 import com.anthropic.client.AnthropicClient
-import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.client.AnthropicClientImpl
+import com.anthropic.core.ClientOptions
 import com.anthropic.core.JsonValue
 import com.anthropic.models.messages.Base64ImageSource
 import com.anthropic.models.messages.CacheControlEphemeral
@@ -20,16 +21,17 @@ import org.json.JSONObject
 import kotlin.jvm.optionals.getOrNull
 
 /** Claude via the official Anthropic Java SDK. History is append-only so thinking blocks replay intact. */
-class AnthropicSession(
+internal class AnthropicSession(
     private val config: ProviderConfig,
     private val system: String,
     toolSpecs: List<ToolSpec>,
+    private val transport: AnthropicTransport = AnthropicTransport(config.apiKey),
 ) : ChatSession {
 
-    private val client: AnthropicClient = AnthropicOkHttpClient.builder()
-        .apiKey(config.apiKey)
-        .apply { if (config.baseUrl.isNotBlank()) baseUrl(config.baseUrl.trimEnd('/')) }
-        .build()
+    private val client: AnthropicClient = AnthropicClientImpl(ClientOptions.builder()
+        .baseUrl(AnthropicTransport.ORIGIN).httpClient(transport).build())
+
+    override fun cancel() = transport.close()
 
     private val tools: List<Tool> = toolSpecs.map { spec ->
         val props = spec.parameters.optJSONObject("properties") ?: JSONObject()

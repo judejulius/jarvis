@@ -4,8 +4,6 @@ import java.security.SecureRandom
 
 /** Fixed settings for the on-device model server. Pure, so the command line can be unit-tested. */
 object RuntimeConfig {
-    /** An unusual loopback port, so it never clashes with a Termux server on 8080. */
-    const val PORT = 18080
     const val MODEL_FILE = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
     const val MODEL_NAME = "qwen2.5-1.5b-instruct"
     const val BINARY = "libllama_server.so"
@@ -21,13 +19,11 @@ object RuntimeConfig {
     fun threadsFor(cores: Int): Int = (cores / 2).coerceIn(2, 4)
 
     /**
-     * Command-line options for llama-server. Listens on the loopback address only and demands an API key, so no other
-     * device (and no other app that does not know the key) can use it.
+     * The listener is a filesystem socket inside the application's private directory.
      */
-    fun args(model: String, port: Int, apiKey: String, threads: Int, context: Int = 4096): List<String> = listOf(
+    fun args(model: String, socketPath: String, apiKey: String, threads: Int, context: Int = 4096): List<String> = listOf(
         "-m", model,
-        "--host", "127.0.0.1",
-        "--port", port.toString(),
+        "--host", socketPath,
         "-c", context.toString(),
         "-t", threads.toString(),
         "-np", "1",

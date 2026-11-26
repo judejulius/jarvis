@@ -29,13 +29,15 @@ class AiRouter(
         if (!settings.embeddedRuntimeEnabled || !rt.isSupported()) return null
         return ModelProfile(
             id = RuntimeConfig.BUILTIN_PROFILE_ID, name = "On-device Qwen", providerId = "custom",
-            baseUrl = rt.baseUrl(), apiKey = rt.apiKey(), model = RuntimeConfig.MODEL_NAME, effort = "",
+            baseUrl = rt.baseUrl(), apiKey = rt.apiKey(), model = RuntimeConfig.MODEL_NAME, effort = "", runtimeClient = rt.client,
         )
     }
 
     override fun plan(task: String, kind: TaskKind): List<ModelProfile> {
-        val saved = settings.modelsInOrder().let { if (settings.fallbackEnabled) it else it.take(1) }
-        val all = listOfNotNull(builtin()) + saved
+        val embedded = builtin()
+        if (settings.aiMode == AiMode.OFFLINE) return listOfNotNull(embedded)
+        val saved = settings.modelsInOrder().filter { it.id != RuntimeConfig.BUILTIN_PROFILE_ID }.let { if (settings.fallbackEnabled) it else it.take(1) }
+        val all = listOfNotNull(embedded) + saved
         val byId = all.associateBy { it.id }
         val candidates = all.map { Candidate(it.id, Endpoints.isLocal(it.baseUrl)) }
         val ordered = RoutePolicy.order(candidates, settings.aiMode, Connectivity.isOnline(context), kind, task, breaker)
@@ -43,7 +45,11 @@ class AiRouter(
     }
 
     override fun ready(profile: ModelProfile, hasAlternative: Boolean, status: (String) -> Unit): Boolean {
-        if (profile.id == RuntimeConfig.BUILTIN_PROFILE_ID) return builtinReady(hasAlternative, status)
+        if (profile.runtimeClient != null) return builtinReady(hasAlternative, status)
+        if (settings.aiMode == AiMode.OFFLINE || !Endpoints.secure(profile.toConfig().baseUrl)) {
+            status("This model needs a trusted HTTPS address and an online mode.")
+            return false
+        }
         if (!Endpoints.isLoopback(profile.baseUrl)) return true
         return server.prepare(profile.baseUrl, hasAlternative, status)
     }
@@ -53,7 +59,7 @@ class AiRouter(
     }
 
     override fun memoryContext(task: String, profile: ModelProfile): String = try {
-        memory()?.promptContext(task, Endpoints.isLocal(profile.baseUrl), settings.shareMemoryWithCloud).orEmpty()
+        memory()?.promptContext(task, profile.runtimeClient != null, settings.shareMemoryWithCloud).orEmpty()
     } catch (_: RuntimeException) {
         ""
     }
@@ -61,7 +67,11 @@ class AiRouter(
     private fun builtinReady(hasAlternative: Boolean, status: (String) -> Unit): Boolean {
         val rt = runtime ?: return false
         if (!rt.hasModel()) {
-            rt.startDownloadIfNeeded(settings.downloadModelOnMobile) // returns at once; progress shows in the status line
+            if (settings.aiMode == AiMode.OFFLINE) {
+                status("Download the on-device model in Settings to use Offline mode.")
+                return false
+            }
+            rt.startDownloadIfNeeded(settings.downloadModelOnMobile)
             status(rt.status.detail.ifBlank { "The on-device model is still downloading." })
             return false
         }

@@ -11,6 +11,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.core.widget.doAfterTextChanged
+import com.jarvis.assistant.ai.Endpoints
 import androidx.fragment.app.Fragment
 import com.jarvis.assistant.CLOUD_VOICES
 import com.jarvis.assistant.CloudVoiceConfig
@@ -61,6 +63,13 @@ class SettingsFragment : Fragment() {
         }
         ui.previewButton.setOnClickListener { previewVoice() }
         showVoiceSection()
+
+        var previousVoiceUrl = ui.cloudUrl.text.toString()
+        ui.cloudUrl.doAfterTextChanged {
+            val next = it.toString()
+            if (!Endpoints.sameOrigin(previousVoiceUrl, next)) ui.cloudKey.text?.clear()
+            previousVoiceUrl = next
+        }
 
         // Wake word
         refreshers += Setup.bindRows(activity, ui.wakeRow, listOf(Setup.Item.WAKE_WORD, Setup.Item.SPEECH))
@@ -163,11 +172,11 @@ class SettingsFragment : Fragment() {
         val config = settings.cloudVoice(preset.id)
         ui.cloudHint.setText(preset.keyHint)
         ui.cloudKeyLayout.hint = getString(if (preset.needsKey) R.string.api_key else R.string.api_key_optional)
-        ui.cloudKey.setText(config.apiKey)
         ui.cloudVoice.setText(config.voice)
         ui.cloudVoiceHint.setText(preset.voiceHint)
         ui.cloudModel.setText(config.model)
         ui.cloudUrl.setText(config.baseUrl)
+        ui.cloudKey.setText(config.apiKey)
         ui.cloudUrlLayout.visibility = if (preset.editableUrl) View.VISIBLE else View.GONE
     }
 

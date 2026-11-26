@@ -26,5 +26,5 @@ interface ModelGate {
 
 class SettingsModelGate(private val settings: Settings) : ModelGate {
     override fun plan(task: String, kind: TaskKind): List<ModelProfile> =
-        settings.modelsInOrder().let { if (settings.fallbackEnabled) it else it.take(1) }
+        settings.modelsInOrder().filter { settings.aiMode != AiMode.OFFLINE && Endpoints.secure(it.toConfig().baseUrl) }.let { if (settings.fallbackEnabled) it else it.take(1) }
 }

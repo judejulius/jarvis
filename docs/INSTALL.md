@@ -47,7 +47,7 @@ GitHub > Actions > the latest **CI** run:
 
 ## 4. Termux (optional now)
 
-The built-in runtime replaces the Termux server. If you still want the Termux server as a fallback, run
+Offline mode uses the built-in model through an app-private socket. To use Termux in Auto or Online mode, configure a trusted HTTPS endpoint for its server, add its `/v1` URL as a custom model, and run
 `bash termux/install-termux.sh` once, as described in the previous release notes (kept in `termux/`).
 
 ## 5. Try it

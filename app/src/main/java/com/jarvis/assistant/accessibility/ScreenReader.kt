@@ -2,6 +2,8 @@ package com.jarvis.assistant.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Rect
+import android.os.Build
+import android.text.InputType
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 
@@ -10,6 +12,7 @@ class ScreenSnapshot(
     val text: String,
     val elements: Map<Int, AccessibilityNodeInfo>,
     val foregroundPackage: String?,
+    val windowId: Int? = null,
 )
 
 object ScreenReader {
@@ -20,32 +23,19 @@ object ScreenReader {
     fun capture(service: AccessibilityService, maxElements: Int = MAX_ELEMENTS): ScreenSnapshot {
         val elements = LinkedHashMap<Int, AccessibilityNodeInfo>()
         val out = StringBuilder()
-        var foreground: String? = null
-
-        val windows = runCatching { service.windows }.getOrDefault(emptyList())
-            .sortedByDescending { it.layer }
-        val roots: List<Pair<String, AccessibilityNodeInfo>> = if (windows.isNotEmpty()) {
-            windows.mapNotNull { w ->
-                val root = w.root ?: return@mapNotNull null
-                if (root.packageName == service.packageName) return@mapNotNull null
-                if (w.type == AccessibilityWindowInfo.TYPE_APPLICATION && foreground == null) {
-                    foreground = root.packageName?.toString()
-                }
-                "${windowType(w.type)} window: ${w.title ?: root.packageName}" to root
-            }
-        } else {
-            listOfNotNull(service.rootInActiveWindow?.let { "Active window: ${it.packageName}" to it })
-                .also { foreground = it.firstOrNull()?.second?.packageName?.toString() }
+        val window = service.windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+            ?: return ScreenSnapshot("No active application window.", elements, null)
+        val root = window.root ?: return ScreenSnapshot("Window unavailable.", elements, null)
+        val foreground = root.packageName?.toString()
+        if (foreground == null || foreground == service.packageName || containsSensitiveContent(root)) {
+            return ScreenSnapshot("This window is private.", elements, null)
         }
 
         val screen = Rect().also { service.resources.displayMetrics.let { m -> it.set(0, 0, m.widthPixels, m.heightPixels) } }
         out.append("Screen size: ${screen.width()}x${screen.height()}. Foreground app: ${foreground ?: "unknown"}\n")
-        for ((label, root) in roots) {
-            out.append("-- $label --\n")
-            walk(root, 0, elements, out, screen, maxElements)
-        }
+        walk(root, 0, elements, out, screen, maxElements)
         if (elements.size >= maxElements) out.append("(more elements not shown; scroll to see more)\n")
-        return ScreenSnapshot(out.toString(), elements, foreground)
+        return ScreenSnapshot(out.toString(), elements, foreground, window.id)
     }
 
     private fun walk(
@@ -56,7 +46,7 @@ object ScreenReader {
         screen: Rect,
         maxElements: Int,
     ) {
-        if (elements.size >= maxElements || !node.isVisibleToUser) return
+        if (depth >= 60 || elements.size >= maxElements || !node.isVisibleToUser || sensitive(node)) return
         val bounds = Rect().also { node.getBoundsInScreen(it) }
         if (!Rect.intersects(bounds, screen)) return
 
@@ -98,11 +88,28 @@ object ScreenReader {
 
     private fun String.clean() = replace('\n', ' ').trim().let { if (it.length > MAX_TEXT) it.take(MAX_TEXT) + "…" else it }
 
-    private fun windowType(type: Int) = when (type) {
-        AccessibilityWindowInfo.TYPE_APPLICATION -> "App"
-        AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "Keyboard"
-        AccessibilityWindowInfo.TYPE_SYSTEM -> "System"
-        AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> "Divider"
-        else -> "Overlay"
+    private fun sensitive(node: AccessibilityNodeInfo): Boolean {
+        val type = node.inputType
+        val variation = type and InputType.TYPE_MASK_VARIATION
+        val passwordInput = when (type and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_TEXT -> variation in setOf(InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)
+            InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+        return node.isPassword || passwordInput || (Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive)
+    }
+
+    // A parent may repeat a child's text. Withhold the window if inspection is incomplete.
+    internal fun containsSensitiveContent(root: AccessibilityNodeInfo): Boolean {
+        val pending = ArrayDeque<AccessibilityNodeInfo>()
+        pending.add(root)
+        var visited = 0
+        while (pending.isNotEmpty()) {
+            val node = pending.removeLast()
+            if (++visited > 1600 || sensitive(node) || node.childCount > 1600 - pending.size) return true
+            for (i in 0 until node.childCount) pending.add(node.getChild(i) ?: return true)
+        }
+        return false
     }
 }

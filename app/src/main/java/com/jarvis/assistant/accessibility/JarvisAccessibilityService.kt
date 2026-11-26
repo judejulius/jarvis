@@ -1,17 +1,17 @@
 package com.jarvis.assistant.accessibility
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.GestureDescription
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Path
-import android.graphics.Rect
+import android.app.KeyguardManager
+import com.jarvis.assistant.apps.ScreenItem
+import com.jarvis.assistant.apps.YouTubeAction
+import com.jarvis.assistant.agent.SensitiveActions
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.RequiresApi
@@ -29,6 +29,9 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     @Volatile private var snapshot: ScreenSnapshot? = null
 
+    private data class ReviewedClick(val node: AccessibilityNodeInfo, val clicked: CountDownLatch = CountDownLatch(1))
+    @Volatile private var review: ReviewedClick? = null
+
     /** The task island shown at the top of the screen while Jarvis works. */
     val island by lazy { com.jarvis.assistant.ui.TaskIsland(this) }
 
@@ -38,7 +41,11 @@ class JarvisAccessibilityService : AccessibilityService() {
         if (Settings(this).wakeWordEnabled) runCatching { JarvisService.startIfSwitchedOn(this) }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val pending = review ?: return
+        if (event?.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
+            event.windowId == pending.node.windowId && event.source == pending.node) pending.clicked.countDown()
+    }
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
@@ -49,25 +56,34 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     // ---- Observation ----
 
-    fun readScreen(maxElements: Int = 300): ScreenSnapshot = ScreenReader.capture(this, maxElements).also { snapshot = it }
-
-    /** The text or description of element [id] on the last screen read ("" if unknown). */
-    fun labelOf(id: Int): String {
-        val n = snapshot?.elements?.get(id) ?: return ""
-        return (n.text ?: n.contentDescription)?.toString().orEmpty()
+    private fun requireUnlocked() {
+        check(!getSystemService(KeyguardManager::class.java).isKeyguardLocked) { "Unlock the device to continue." }
     }
 
-    private fun element(id: Int): AccessibilityNodeInfo =
-        snapshot?.elements?.get(id)?.also { it.refresh() }
-            ?: throw IllegalArgumentException("No element [$id] on the last screen read. Use ids from the latest screen.")
+    fun readScreen(maxElements: Int = 300): ScreenSnapshot {
+        requireUnlocked()
+        return ScreenReader.capture(this, maxElements).also { snapshot = it }
+    }
+
+    private fun element(id: Int): AccessibilityNodeInfo {
+        requireUnlocked()
+        val seen = snapshot ?: error("Read the screen again.")
+        val node = seen.elements[id] ?: error("Element unavailable.")
+        check(node.refresh() && node.isVisibleToUser && node.isEnabled &&
+            node.windowId == seen.windowId && rootInActiveWindow?.windowId == node.windowId) { "The screen changed." }
+        return node
+    }
 
     /** Screenshot as JPEG, scaled so its width is at most [maxWidth]. Returns bytes and the scale used. */
-    @RequiresApi(Build.VERSION_CODES.R)
+    @RequiresApi(34)
     fun screenshot(maxWidth: Int = 720): Pair<ByteArray, Float> {
         val latch = CountDownLatch(1)
         var result: Pair<ByteArray, Float>? = null
         var error: String? = null
-        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+        val before = readScreen()
+        val window = before.windowId ?: error("Window unavailable.")
+        check(Settings(this).allowScreenshots)
+        takeScreenshotOfWindow(window, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(shot: ScreenshotResult) {
                 val hw = Bitmap.wrapHardwareBuffer(shot.hardwareBuffer, shot.colorSpace)
                 val full = hw?.copy(Bitmap.Config.ARGB_8888, false)
@@ -86,44 +102,67 @@ class JarvisAccessibilityService : AccessibilityService() {
             }
         })
         latch.await(5, TimeUnit.SECONDS)
+        val after = readScreen()
+        check(before.windowId == after.windowId && before.text == after.text && Settings(this).allowScreenshots) { "Window changed during capture." }
         return result ?: throw IllegalStateException(error ?: "screenshot timed out")
     }
 
     // ---- Actions ----
 
-    fun tap(id: Int): String {
+    fun tap(id: Int, canAct: () -> Boolean): String {
         val node = element(id)
-        var target: AccessibilityNodeInfo? = node
-        while (target != null && !target.isClickable) target = target.parent
-        if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return "Tapped [$id]."
-        val b = Rect().also { node.getBoundsInScreen(it) }
-        return if (tapAt(b.centerX().toFloat(), b.centerY().toFloat())) "Tapped [$id] at (${b.centerX()},${b.centerY()})."
-        else "Tap on [$id] failed."
+        val label = node.text?.toString()?.ifBlank { null } ?: node.contentDescription?.toString().orEmpty()
+        if (!canAct()) return "Task stopped."
+        if (node.isEditable) {
+            return if (node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)) "Tapped text field." else "Could not focus field."
+        }
+        if (!SensitiveActions.canNavigate(label, false) || !node.isClickable) return waitForUserTap(node, label, canAct)
+        return if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) "Tapped control." else "Tap failed."
     }
 
-    fun longPress(id: Int): String {
+    /** The person performs the final click. A matching event resumes observation exactly once. */
+    private fun waitForUserTap(node: AccessibilityNodeInfo, label: String, canAct: () -> Boolean): String {
+        var target = node
+        while (!target.isClickable) target = target.parent ?: return SensitiveActions.MANUAL
+        val pending = ReviewedClick(target)
+        review = pending
+        try {
+            android.os.Handler(mainLooper).post {
+                if (canAct() && review === pending) android.widget.Toast.makeText(this,
+                    "Review the screen and tap ${label.take(60).ifBlank { "the control" }} to continue.", android.widget.Toast.LENGTH_LONG).show()
+            }
+            val end = SystemClock.elapsedRealtime() + 30_000
+            while (canAct() && SystemClock.elapsedRealtime() < end) {
+                requireUnlocked()
+                if (pending.clicked.await(150, TimeUnit.MILLISECONDS)) return "Tapped by you."
+                if (rootInActiveWindow?.windowId != node.windowId) break
+            }
+            return SensitiveActions.MANUAL
+        } finally {
+            review = null
+        }
+    }
+
+    fun tapVideoResult(id: Int, title: String): String {
         val node = element(id)
-        var target: AccessibilityNodeInfo? = node
-        while (target != null && !target.isLongClickable) target = target.parent
-        if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) return "Long-pressed [$id]."
-        val b = Rect().also { node.getBoundsInScreen(it) }
-        return if (gesture(path(b.exactCenterX(), b.exactCenterY()), 800)) "Long-pressed [$id]." else "Long press failed."
+        val item = ScreenItem(id, (node.contentDescription ?: node.text)?.toString().orEmpty(), node.isClickable)
+        check(node.packageName == YouTubeAction.packageName && YouTubeAction.pickResult(listOf(item)) == item &&
+            YouTubeAction.titleOf(item) == title) { "Video result changed." }
+        return if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) "Tapped video." else "Tap failed."
     }
 
     fun typeText(id: Int?, text: String, submit: Boolean): String {
-        val node = when {
-            id != null -> element(id)
-            else -> findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                ?: throw IllegalStateException("No text field is focused. Pass an element_id.")
-        }
+        if (submit) return SensitiveActions.MANUAL
+        val seen = snapshot
+        val fresh = readScreen()
+        check(fresh.foregroundPackage != null && (id == null || seen?.text == fresh.text)) { "Read the field again." }
+        val target = id ?: fresh.elements.entries.firstOrNull { it.value.isFocused && it.value.isEditable }?.key
+            ?: error("No text field is focused.")
+        val node = element(target)
+        check(node.isEditable) { "Select an editable field." }
         if (!node.isFocused) node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
         if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return "Could not type into that element (is it a text field?)."
-        if (submit) {
-            val ok = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
-            return if (ok) "Typed text and pressed enter." else "Typed text, but could not press enter; tap the send/search button instead."
-        }
         return "Typed text."
     }
 
@@ -135,27 +174,13 @@ class JarvisAccessibilityService : AccessibilityService() {
             else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
             if (target != null && target.performAction(action)) return "Scrolled $direction."
         }
-        // Fall back to a swipe in the middle of the screen. Content moves opposite to the finger.
-        val m = resources.displayMetrics
-        val cx = m.widthPixels / 2f
-        val cy = m.heightPixels / 2f
-        val dy = m.heightPixels * 0.3f
-        val dx = m.widthPixels * 0.35f
-        val ok = when (direction) {
-            "down" -> swipe(cx, cy + dy, cx, cy - dy, 350)
-            "up" -> swipe(cx, cy - dy, cx, cy + dy, 350)
-            "right" -> swipe(cx + dx, cy, cx - dx, cy, 350)
-            else -> swipe(cx - dx, cy, cx + dx, cy, 350)
-        }
-        return if (ok) "Swiped to scroll $direction." else "Scroll failed."
+        val scrollable = readScreen().elements.values.firstOrNull { it.isScrollable }
+        val action = if (direction in setOf("down", "right")) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        return if (scrollable?.performAction(action) == true) "Scrolled $direction." else "Scroll unavailable."
     }
 
-    fun tapAt(x: Float, y: Float): Boolean = gesture(path(x, y), 60)
-
-    fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long): Boolean =
-        gesture(Path().apply { moveTo(x1, y1); lineTo(x2, y2) }, durationMs)
-
     fun pressKey(key: String): String {
+        requireUnlocked()
         val action = when (key) {
             "back" -> GLOBAL_ACTION_BACK
             "home" -> GLOBAL_ACTION_HOME
@@ -171,6 +196,7 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     /** Launches the best-matching installed app by its visible name (or package name). */
     fun openApp(name: String): String {
+        requireUnlocked()
         val pm = packageManager
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = pm.queryIntentActivities(launcher, PackageManager.MATCH_ALL)
@@ -191,6 +217,7 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     /** Starts [intent] from the background (accessibility services are allowed to). False if nothing can handle it. */
     fun launch(intent: Intent): Boolean = try {
+        requireUnlocked()
         startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         true
     } catch (_: ActivityNotFoundException) {
@@ -227,33 +254,11 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     /** Taps the visible element whose text or description is [text]. */
-    fun tapByText(text: String): String {
-        val root = rootInActiveWindow ?: return "I can't read the screen right now."
-        val matches = root.findAccessibilityNodeInfosByText(text).filter { it.isVisibleToUser }
-        val exact = matches.filter { (it.text ?: it.contentDescription)?.toString().equals(text, ignoreCase = true) }
-        val node = (exact.ifEmpty { matches }).firstOrNull() ?: return "I can't see anything labelled $text on this screen."
-        var target: AccessibilityNodeInfo? = node
-        while (target != null && !target.isClickable) target = target.parent
-        if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return "Tapped $text."
-        val b = Rect().also { node.getBoundsInScreen(it) }
-        return if (tapAt(b.centerX().toFloat(), b.centerY().toFloat())) "Tapped $text." else "Tapping $text failed."
-    }
-
-    private fun path(x: Float, y: Float) = Path().apply { moveTo(x, y); lineTo(x + 1, y + 1) }
-
-    private fun gesture(path: Path, durationMs: Long): Boolean {
-        val latch = CountDownLatch(1)
-        var ok = false
-        val desc = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
-            .build()
-        val dispatched = dispatchGesture(desc, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) { ok = true; latch.countDown() }
-            override fun onCancelled(gestureDescription: GestureDescription?) { latch.countDown() }
-        }, null)
-        if (!dispatched) return false
-        latch.await(durationMs + 3000, TimeUnit.MILLISECONDS)
-        return ok
+    fun tapByText(text: String, canAct: () -> Boolean): String {
+        val seen = readScreen()
+        val matches = seen.elements.filterValues { (it.text ?: it.contentDescription)?.toString().equals(text, ignoreCase = true) }
+        val id = matches.keys.singleOrNull() ?: return "Choose the control on your phone."
+        return tap(id, canAct)
     }
 
     companion object {

@@ -6,7 +6,7 @@
 
 **A voice assistant for Android that uses your phone for you.**
 
-Say *"Hey Jarvis, text Mum I'm on my way"* and Jarvis opens the app, finds the chat, types the message, sends it and tells you when it's done. It works with Claude, OpenAI, or a model running on your own computer.
+Say *"Hey Jarvis, text Mum I'm on my way"* and Jarvis opens the app, finds the chat, drafts the message and lets you review and tap Send on your phone. It works with Claude, OpenAI, or a model running on your own computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)](#requirements)
@@ -128,8 +128,8 @@ The walkthrough guides you through each step and ticks it off when it's done. Yo
 |---|---|---|
 | **Claude** (Anthropic) | `claude-opus-5-5` | Uses the official Anthropic Java SDK. The *Effort* setting trades speed for care; *Low* is noticeably faster for simple tasks. |
 | **OpenAI** | `gpt-5` | Any model on your account that supports tool calling. |
-| **LM Studio** | `local-model` | Turn on *Serve on local network* and use `http://<your-PC-IP>:1234/v1`. Pick a model that supports tool calling, such as Qwen 3 or Llama 3.1+. |
-| **Ollama** | `qwen2.5:14b` | Run with `OLLAMA_HOST=0.0.0.0` and use `http://<your-PC-IP>:11434/v1`. |
+| **LM Studio** | `local-model` | Use an HTTPS reverse proxy with a certificate trusted by the phone, then enter its `/v1` URL. Pick a model that supports tool calling, such as Qwen 3 or Llama 3.1+. |
+| **Ollama** | `qwen2.5:14b` | Expose the local Ollama listener through a trusted HTTPS reverse proxy and enter its `/v1` URL. |
 | **OpenRouter, Gemini, Groq, Custom** | editable | Any OpenAI-compatible `/chat/completions` endpoint with tool calling. |
 
 Small local models struggle with long, multi-step phone tasks. If results are unreliable, try a bigger model, or turn on screenshots with a vision model.
@@ -140,7 +140,7 @@ Simple commands run without the AI model, so they are fast and work offline: "op
 
 - **AI mode** (Settings > Assistant): *Auto* uses the on-phone model for short simple questions and cloud models for hard, current-events or Hindi ones; *Online* prefers the cloud; *Offline* never leaves the phone. Say "offline mode" / "online mode" / "automatic mode" to switch.
 - **Memory**: "when I say yt, open YouTube", "remember that I prefer short answers", "forget my wifi name", "what do you remember". Manage everything in Settings > Assistant > Memories. It stays on the phone.
-- **On-phone model**: see [docs/INSTALL.md](docs/INSTALL.md) for the one-time Termux setup that lets Jarvis start and restart `llama-server`.
+- **On-phone model**: Offline mode uses the built-in runtime. Install its model and the English recognition and Kokoro assets before going offline. Typed commands and on-screen replies are available when a speech asset is missing. For an optional HTTPS Termux profile in Auto or Online mode, see [docs/INSTALL.md](docs/INSTALL.md) for the one-time Termux setup that lets Jarvis start and restart `llama-server`.
 - Design notes and honest limits: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ## How it works
@@ -239,10 +239,12 @@ app/src/main/java/com/jarvis/assistant/
 
 ## Privacy and safety
 
-- **What stays on your phone:** the microphone audio, the wake word, speech recognition and the voice.
-- **What gets sent:** while a task is running, the text on your screen (and screenshots, if you turn them on) goes to the model provider you chose. If you pick a cloud voice, the sentences Jarvis speaks go to that voice provider. For full privacy, use LM Studio or Ollama and the Kokoro voice.
+- **Voice privacy.** Wake detection runs on your phone. In Auto and Online modes the system speech recognizer may use its provider's servers.
+- **What gets sent:** while a task is running, the active application's accessible text (and its window image on Android 14 or newer, if you enable screenshots) goes to the model provider you chose. If you pick a cloud voice, the sentences Jarvis speaks go to that voice provider. Select Offline to keep assistant processing on-device.
 - **Task history** stores action descriptions locally when **Remember what tasks I have done** is enabled. Related task titles can be shared with a cloud model if you enable cloud memory sharing. Replay steps stay on the device.
+- **Upgrading an existing profile.** Re-enter its API key once so Jarvis can associate the credential with the selected provider and server. Update saved HTTP model or voice URLs to HTTPS.
 - **API keys** are stored in the app's private storage and only sent to the provider they belong to.
+- **Confirming actions.** Contact calls can use a single spoken confirmation for a specific number. Jarvis asks you to complete ambiguous controls, sends, and purchases on the phone.
 - **Safety rules.** Jarvis is told to ask before payments, purchases, deletions or security changes, to ask when a contact is ambiguous, and to treat text on screen as content, not instructions. These rules live in the prompt, and **models can still make mistakes**. Watch what it does until you trust it. You can stop a task at any time from the task island or the notification.
 
 Found a security problem? Please see [SECURITY.md](SECURITY.md).

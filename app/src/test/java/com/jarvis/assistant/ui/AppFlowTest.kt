@@ -91,13 +91,13 @@ class AppFlowTest {
                 (0 until chips.childCount).map { chips.getChildAt(it) as Chip }.first { it.tag == "lmstudio" }.performClick()
                 ShadowLooper.idleMainLooper()
                 assertEquals("LM Studio", a.findViewById<android.widget.EditText>(R.id.name).text.toString())
-                a.findViewById<android.widget.EditText>(R.id.baseUrl).setText("http://192.168.1.50:1234/v1")
+                a.findViewById<android.widget.EditText>(R.id.baseUrl).setText("https://192.168.1.50:1234/v1")
                 a.findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.primarySwitch).isChecked = true
                 a.findViewById<android.view.View>(R.id.saveButton).performClick()
             }
         }
         val local = settings.profiles().first { it.providerId == "lmstudio" }
-        assertEquals("http://192.168.1.50:1234/v1", local.baseUrl)
+        assertEquals("https://192.168.1.50:1234/v1", local.baseUrl)
         assertEquals(local.id, settings.primaryId)
         assertEquals(listOf(local.id, claude.id), settings.modelsInOrder().map { it.id })
 

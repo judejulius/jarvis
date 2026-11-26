@@ -95,7 +95,7 @@ Write a short summary line in the imperative ("Fix crash when the wake word mode
 2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 3. The **Release** workflow builds the APK and attaches it to a GitHub release.
 
-To sign releases, add these repository secrets: `KEYSTORE_BASE64` (your `.jks` file, base64-encoded), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`. Without them the workflow publishes a debug-signed APK. Keep the keystore safe: Android only installs updates signed with the same key.
+To sign releases, add these repository secrets: `KEYSTORE_BASE64` (your `.jks` file, base64-encoded), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`. Set the repository variable `RELEASE_SIGNER_SHA256` to the release certificate’s 64 hexadecimal SHA-256 digits, without separators. The tag workflow requires all four secrets and verifies every APK against this fingerprint before publishing. Keep the keystore safe: Android only installs updates signed with the same key.
 
 ## Licence
 

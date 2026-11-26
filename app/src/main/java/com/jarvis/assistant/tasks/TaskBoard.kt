@@ -134,7 +134,7 @@ sealed interface TaskControl {
     companion object {
         private val OPT = RegexOption.IGNORE_CASE
         private val CANCEL = Regex("""^\W*(?:please\s+)?(?:cancel|stop|abort|drop|forget|never\s?mind|rehne\s+do|rehne\s+de|chhodo|chodo)(?:\s+(?:that|it|this))?(?:\s+(?:task|request|command|action))?(?:\s+karo)?\W*$""", OPT)
-        private val CANCEL_THEN = Regex("""^\W*(?:please\s+)?(?:cancel|stop|abort|drop|forget|never\s?mind|rehne\s+do|rehne\s+de|chhodo|chodo)(?:\s+(?:that|it|this))?(?:\s+(?:task|request|command|action))?[\s,.;:-]+(?:and\s+|then\s+|aur\s+)?(.+?)\W*$""", OPT)
+        private val CANCEL_THEN = Regex("""^\W*(?:please\s+)?(?:cancel|stop|abort|drop|never\s?mind|rehne\s+do|rehne\s+de|chhodo|chodo)(?:\s+(?:that|it|this))?(?:\s+(?:task|request|command|action))?[\s,.;:-]+(?:and\s+|then\s+|aur\s+)?(.+?)\W*$""", OPT)
         private val BACKGROUND = Regex("""^\W*(?:please\s+)?(?:(?:put|run|do|keep|move|send|leave)(?:\s+(?:that|it|this))?(?:\s+task)?\s+(?:in|to|into|on)\s+(?:the\s+)?background|background\s+(?:it|that|this)|(?:isko|usko|ise|use)?\s*background\s+(?:me|mein)\s+(?:daal\s+do|chalao|chalne\s+do|rakho))(?:[\s,.;:-]+(?:and\s+|then\s+|aur\s+)?(.+?))?\W*$""", OPT)
         private val STATUS = Regex("""^\W*(?:what(?:'s| is| are)?\s+(?:you\s+doing|running|happening)|what\s+are\s+you\s+working\s+on|any\s+tasks?\s+running|task\s+status|status\s+of\s+(?:the\s+)?task|kya\s+kar\s+rahe\s+ho)\W*$""", OPT)
 

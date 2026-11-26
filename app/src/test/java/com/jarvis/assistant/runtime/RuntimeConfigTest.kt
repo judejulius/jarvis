@@ -6,9 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RuntimeConfigTest {
-    @Test fun commandLineIsLoopbackOnlyAndProtectedByAKey() {
-        val a = RuntimeConfig.args("/m.gguf", 18080, "k3y", 4)
-        assertEquals("127.0.0.1", a[a.indexOf("--host") + 1])
+    @Test fun commandLineUsesPrivateSocketAndApiKey() {
+        val a = RuntimeConfig.args("/m.gguf", "/private/model.sock", "k3y", 4)
+        assertEquals("/private/model.sock", a[a.indexOf("--host") + 1])
         assertEquals("k3y", a[a.indexOf("--api-key") + 1])
         assertEquals("1", a[a.indexOf("-np") + 1])
         assertEquals("4096", a[a.indexOf("-c") + 1])

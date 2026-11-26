@@ -108,7 +108,7 @@
     <string name="runtime_failed">ऑन-डिवाइस मॉडल में समस्या: %1$s</string>
     <string name="runtime_installed">ऑन-डिवाइस मॉडल: इंस्टॉल है। ज़रूरत पड़ने पर शुरू होता है और मेमोरी बचाने के लिए कुछ देर बाद बंद हो जाता है।</string>
     <string name="runtime_not_downloaded">ऑन-डिवाइस मॉडल (लगभग 1 GB) अभी डाउनलोड नहीं हुआ है।</string>
-    <string name="local_none">फ़ोन पर कोई मॉडल सेट नहीं है। मॉडल पेज पर एक जोड़ें, जैसे http://127.0.0.1:8080/v1</string>
+    <string name="local_none">फ़ोन पर कोई मॉडल सेट नहीं है। मॉडल पेज पर एक जोड़ें, जैसे https://localhost:8080/v1</string>
     <string name="local_checking">फ़ोन वाला मॉडल: जांच हो रही है…</string>
     <string name="local_running">फ़ोन वाला मॉडल (%1$s): चल रहा है।</string>
     <string name="local_loading">फ़ोन वाला मॉडल (%1$s): लोड हो रहा है…</string>

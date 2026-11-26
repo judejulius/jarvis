@@ -126,7 +126,7 @@ object AssistantSection {
     }
 
     private fun refreshStatus(context: Context, settings: Settings, view: View, status: TextView) {
-        val profile = settings.modelsInOrder().firstOrNull { Endpoints.isLoopback(it.baseUrl) }
+        val profile = settings.modelsInOrder().firstOrNull { Endpoints.secure(it.baseUrl) && Endpoints.isLoopback(it.baseUrl) }
         if (profile == null) {
             status.setText(R.string.local_none)
             return

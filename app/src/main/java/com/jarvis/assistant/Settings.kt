@@ -2,6 +2,8 @@ package com.jarvis.assistant
 
 import android.content.Context
 import com.jarvis.assistant.ai.AiMode
+import com.jarvis.assistant.ai.Endpoints
+import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -22,12 +24,12 @@ data class ProviderPreset(
 val PROVIDERS = listOf(
     ProviderPreset("anthropic", "Claude (Anthropic)", ApiKind.ANTHROPIC, "https://api.anthropic.com", "claude-opus-5-5", true),
     ProviderPreset("openai", "OpenAI", ApiKind.OPENAI_COMPATIBLE, "https://api.openai.com/v1", "gpt-5", true),
-    ProviderPreset("lmstudio", "LM Studio (local)", ApiKind.OPENAI_COMPATIBLE, "http://192.168.1.100:1234/v1", "local-model", false),
-    ProviderPreset("ollama", "Ollama (local)", ApiKind.OPENAI_COMPATIBLE, "http://192.168.1.100:11434/v1", "qwen2.5:14b", false),
+    ProviderPreset("lmstudio", "LM Studio (local)", ApiKind.OPENAI_COMPATIBLE, "https://192.168.1.100:1234/v1", "local-model", false),
+    ProviderPreset("ollama", "Ollama (local)", ApiKind.OPENAI_COMPATIBLE, "https://192.168.1.100:11434/v1", "qwen2.5:14b", false),
     ProviderPreset("openrouter", "OpenRouter", ApiKind.OPENAI_COMPATIBLE, "https://openrouter.ai/api/v1", "anthropic/claude-opus-5-5", true),
     ProviderPreset("gemini", "Google Gemini", ApiKind.OPENAI_COMPATIBLE, "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", true),
     ProviderPreset("groq", "Groq", ApiKind.OPENAI_COMPATIBLE, "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", true),
-    ProviderPreset("custom", "Custom (OpenAI-compatible)", ApiKind.OPENAI_COMPATIBLE, "http://localhost:8080/v1", "", false),
+    ProviderPreset("custom", "Custom (OpenAI-compatible)", ApiKind.OPENAI_COMPATIBLE, "https://localhost:8080/v1", "", false),
 )
 
 /** A model the user has saved. Several can exist; one is primary, the rest are fallbacks in order. */
@@ -39,18 +41,32 @@ data class ModelProfile(
     val apiKey: String,
     val model: String,
     val effort: String = "medium",
+    internal val runtimeClient: OkHttpClient? = null,
 ) {
     val preset get() = PROVIDERS.firstOrNull { it.id == providerId } ?: PROVIDERS.last()
-    fun toConfig() = ProviderConfig(preset, baseUrl, apiKey, model, if (preset.kind == ApiKind.ANTHROPIC) effort else "")
+    fun toConfig(): ProviderConfig {
+        val fixed = preset.needsKey
+        val url = if (fixed) preset.defaultBaseUrl else baseUrl
+        val key = when {
+            fixed && !Endpoints.sameOrigin(baseUrl, url) -> ""
+            !fixed && providerId != "custom" -> ""
+            else -> apiKey
+        }
+        return ProviderConfig(preset, url, key, model, if (preset.kind == ApiKind.ANTHROPIC) effort else "", runtimeClient)
+    }
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("provider", providerId).put("base", baseUrl)
-        .put("key", apiKey).put("model", model).put("effort", effort)
+        .put("key", apiKey).put("keyProvider", providerId).put("keyOrigin", Endpoints.credentialOrigin(baseUrl))
+        .put("model", model).put("effort", effort)
 
     companion object {
         fun fromJson(o: JSONObject) = ModelProfile(
             o.getString("id"), o.optString("name"), o.optString("provider", "custom"), o.optString("base"),
-            o.optString("key"), o.optString("model"), o.optString("effort", "medium"),
+            o.optString("key").takeIf {
+                o.optString("keyProvider") == o.optString("provider") &&
+                    o.optString("keyOrigin") == Endpoints.credentialOrigin(o.optString("base"))
+            }.orEmpty(), o.optString("model"), o.optString("effort", "medium"),
         )
     }
 }
@@ -63,6 +79,7 @@ data class ProviderConfig(
     val model: String,
     /** Claude only: "low" | "medium" | "high" | "xhigh" | "max" | "" (omit). */
     val effort: String,
+    internal val runtimeClient: OkHttpClient? = null,
 )
 
 class Settings(context: Context) {
@@ -74,7 +91,7 @@ class Settings(context: Context) {
 
     /** Whether the model may request screenshots (needs a vision-capable model and Android 11+). */
     var allowScreenshots: Boolean
-        get() = prefs.getBoolean("screenshots", true)
+        get() = prefs.getBoolean("screenshots", false)
         set(v) = prefs.edit().putBoolean("screenshots", v).apply()
 
     var customWakePhrase: String
@@ -166,7 +183,7 @@ class Settings(context: Context) {
             if (key.isBlank() && (p.needsKey || model == null)) return@mapNotNull null
             ModelProfile(
                 name = p.label.substringBefore(" ("), providerId = p.id,
-                baseUrl = prefs.getString("p.${p.id}.base", null) ?: p.defaultBaseUrl, apiKey = key,
+                baseUrl = prefs.getString("p.${p.id}.base", null) ?: p.defaultBaseUrl, apiKey = "",
                 model = model ?: p.defaultModel, effort = prefs.getString("p.${p.id}.effort", "medium")!!.ifEmpty { "medium" },
             )
         }
@@ -204,7 +221,7 @@ class Settings(context: Context) {
             apiKey = prefs.getString("tts_${id}_key", "")!!.ifEmpty { if (id == "openai") openAiKeyFromModels() else "" },
             model = prefs.getString("tts_${id}_model", "")!!.ifEmpty { preset.defaultModel },
             voice = prefs.getString("tts_${id}_voice", null) ?: preset.defaultVoice,
-            baseUrl = prefs.getString("tts_${id}_url", "")!!.ifEmpty { preset.defaultBaseUrl },
+            baseUrl = if (preset.editableUrl) prefs.getString("tts_${id}_url", "")!!.ifEmpty { preset.defaultBaseUrl } else preset.defaultBaseUrl,
         )
     }
 
@@ -219,7 +236,7 @@ class Settings(context: Context) {
 
     /** Re-use the key of an OpenAI model the user already added, so they don't have to paste it twice. */
     private fun openAiKeyFromModels(): String =
-        modelsInOrder().firstOrNull { it.providerId == "openai" && it.apiKey.isNotBlank() }?.apiKey.orEmpty()
+        modelsInOrder().filter { it.providerId == "openai" }.firstNotNullOfOrNull { it.toConfig().apiKey.ifBlank { null } }.orEmpty()
 
     // ---- Conversation ----
 
@@ -343,7 +360,7 @@ val CLOUD_VOICES = listOf(
         voiceHint = R.string.fish_voice_hint,
     ),
     CloudVoicePreset(
-        "custom", "Custom", "tts-1", "alloy", "http://192.168.1.10:8880/v1",
+        "custom", "Custom", "tts-1", "alloy", "https://192.168.1.10:8880/v1",
         keyHint = R.string.custom_voice_key_hint,
         voiceHint = R.string.custom_voice_voice_hint,
         needsKey = false, editableUrl = true,

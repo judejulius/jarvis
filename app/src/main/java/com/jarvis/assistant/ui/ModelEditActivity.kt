@@ -2,6 +2,9 @@ package com.jarvis.assistant.ui
 
 import android.os.Bundle
 import android.view.View
+import androidx.core.widget.doAfterTextChanged
+import com.jarvis.assistant.ai.AiMode
+import com.jarvis.assistant.ai.Endpoints
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jarvis.assistant.ApiKind
@@ -44,9 +47,9 @@ class ModelEditActivity : AppCompatActivity() {
         if (start != null) {
             preset = start.preset
             ui.name.setText(start.name)
-            ui.apiKey.setText(start.apiKey)
+            ui.apiKey.setText(start.toConfig().apiKey)
             ui.model.setText(start.model)
-            ui.baseUrl.setText(start.baseUrl)
+            ui.baseUrl.setText(start.toConfig().baseUrl)
             ui.effortChips.select(start.effort)
             ui.primarySwitch.isChecked = settings.primaryId == start.id
         } else {
@@ -57,9 +60,16 @@ class ModelEditActivity : AppCompatActivity() {
         ui.providerChips.select(preset.id)
         showFieldsFor(preset)
 
+        var lastUrl = ui.baseUrl.text.toString()
+        ui.baseUrl.doAfterTextChanged {
+            val next = it.toString()
+            if (!Endpoints.sameOrigin(lastUrl, next)) ui.apiKey.text?.clear()
+            lastUrl = next
+        }
         ui.providerChips.setOnCheckedStateChangeListener { _, _ ->
             val next = PROVIDERS.firstOrNull { it.id == ui.providerChips.selectedTag } ?: return@setOnCheckedStateChangeListener
             if (next == preset) return@setOnCheckedStateChangeListener
+            ui.apiKey.text?.clear()
             applyPresetDefaults(next, previous = preset)
             preset = next
             showFieldsFor(next)
@@ -72,7 +82,7 @@ class ModelEditActivity : AppCompatActivity() {
         fun untouched(current: String, oldDefault: String?) = current.isBlank() || current == oldDefault
         if (untouched(ui.name.text.toString(), previous?.label?.substringBefore(" ("))) ui.name.setText(next.label.substringBefore(" ("))
         if (untouched(ui.model.text.toString(), previous?.defaultModel)) ui.model.setText(next.defaultModel)
-        if (untouched(ui.baseUrl.text.toString(), previous?.defaultBaseUrl)) ui.baseUrl.setText(next.defaultBaseUrl)
+        ui.baseUrl.setText(next.defaultBaseUrl)
     }
 
     private fun showFieldsFor(p: ProviderPreset) {
@@ -88,7 +98,13 @@ class ModelEditActivity : AppCompatActivity() {
     private fun current(): ModelProfile? {
         ui.apiKeyLayout.error = null
         ui.name.error = null
-        val key = ui.apiKey.text.toString().trim()
+        val url = if (preset.needsKey) preset.defaultBaseUrl else ui.baseUrl.text.toString().trim().ifBlank { preset.defaultBaseUrl }
+        if (!Endpoints.secure(url)) {
+            ui.baseUrlLayout.error = "Use an HTTPS address with a trusted certificate."
+            return null
+        }
+        ui.baseUrlLayout.error = null
+        val key = if (preset.needsKey || preset.id == "custom") ui.apiKey.text.toString().trim() else ""
         val model = ui.model.text.toString().trim()
         if (preset.needsKey && key.isBlank()) { ui.apiKeyLayout.error = getString(R.string.paste_api_key); return null }
         if (model.isBlank()) { ui.model.error = getString(R.string.enter_model_id); return null }
@@ -96,7 +112,7 @@ class ModelEditActivity : AppCompatActivity() {
             id = existing?.id ?: java.util.UUID.randomUUID().toString(),
             name = ui.name.text.toString().trim().ifBlank { preset.label.substringBefore(" (") },
             providerId = preset.id,
-            baseUrl = ui.baseUrl.text.toString().trim().ifBlank { preset.defaultBaseUrl },
+            baseUrl = url,
             apiKey = key,
             model = model,
             effort = ui.effortChips.selectedTag ?: "medium",
@@ -104,6 +120,12 @@ class ModelEditActivity : AppCompatActivity() {
     }
 
     private fun test() {
+        if (settings.aiMode == AiMode.OFFLINE) {
+            ui.testResult.visibility = View.VISIBLE
+            ui.testResult.setTextColor(color(R.color.danger))
+            ui.testResult.setText(R.string.mode_offline_hint)
+            return
+        }
         val profile = current() ?: return
         ui.testButton.isEnabled = false
         ui.testButton.setText(R.string.testing)

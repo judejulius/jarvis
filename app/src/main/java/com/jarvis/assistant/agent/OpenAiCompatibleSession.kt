@@ -33,7 +33,8 @@ class OpenAiCompatibleSession(
     private val withTools = toolSpecs.isNotEmpty()
 
     // One shared client (connection pool and threads); only the timeouts differ per session.
-    private val http = SHARED_CLIENT.newBuilder()
+    private val http = (config.runtimeClient ?: SHARED_CLIENT).newBuilder()
+        .followRedirects(false)
         .connectTimeout(if (onPhone) 3 else 20, TimeUnit.SECONDS)
         .readTimeout(
             when {
@@ -110,7 +111,7 @@ class OpenAiCompatibleSession(
                 val text = resp.body?.string().orEmpty()
                 val bodyReadAt = SystemClock.elapsedRealtime()
                 if (!resp.isSuccessful) {
-                    Log.e("JarvisAPI", "HTTP ${resp.code}: $text")
+                    Log.e("JarvisAPI", "HTTP ${resp.code} from ${config.preset.label}")
                     throw IOException("HTTP ${resp.code} from ${config.preset.label}: ${text.take(500)}")
                 }
                 val parsed = JSONObject(text)

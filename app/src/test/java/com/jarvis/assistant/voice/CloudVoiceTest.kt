@@ -60,17 +60,23 @@ class CloudVoiceTest {
     private fun speak(config: CloudVoiceConfig): Pair<Boolean, String?> {
         var done = false
         var failed: String? = null
-        CloudVoice().speak(config, "Good evening.", 1.0f, { done = true }) { failed = it }
+        testVoice().speak(config, "Good evening.", 1.0f, { done = true }) { failed = it }
         waitFor { done || failed != null }
         return done to failed
     }
 
-    private fun url() = server.url("/v1").toString().trimEnd('/')
+    private fun url() = "https://voice.example/v1"
+
+    private fun testVoice() = CloudVoice(okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+        val req = chain.request()
+        val target = server.url(req.url.encodedPath).newBuilder().encodedQuery(req.url.encodedQuery).build()
+        chain.proceed(req.newBuilder().url(target).build())
+    }.build())
 
     @Test
     fun openAiAsksForStreamedPcmInJarvissStyle() {
         server.enqueue(MockResponse().setBody(pcm()))
-        val (done, failed) = speak(CloudVoiceConfig("openai", "sk-test", "gpt-4o-mini-tts", "onyx", url()))
+        val (done, failed) = speak(CloudVoiceConfig("openai", "sk-test", "gpt-4o-mini-tts", "onyx", com.jarvis.assistant.CLOUD_VOICES.first { it.id == "openai" }.defaultBaseUrl))
         assertNull(failed); assertTrue(done)
         val req = server.takeRequest(1, TimeUnit.SECONDS)!!
         assertEquals("/v1/audio/speech", req.path)
@@ -86,7 +92,7 @@ class CloudVoiceTest {
     @Test
     fun elevenLabsUsesItsStreamEndpoint() {
         server.enqueue(MockResponse().setBody(pcm()))
-        val (done, _) = speak(CloudVoiceConfig("elevenlabs", "xi-key", "eleven_flash_v2_5", "VOICE123", url()))
+        val (done, _) = speak(CloudVoiceConfig("elevenlabs", "xi-key", "eleven_flash_v2_5", "VOICE123", com.jarvis.assistant.CLOUD_VOICES.first { it.id == "elevenlabs" }.defaultBaseUrl))
         assertTrue(done)
         val req = server.takeRequest(1, TimeUnit.SECONDS)!!
         assertEquals("/v1/text-to-speech/VOICE123/stream?output_format=pcm_24000", req.path)
@@ -97,7 +103,7 @@ class CloudVoiceTest {
     @Test
     fun fishAudioSendsModelHeaderAndVoiceId() {
         server.enqueue(MockResponse().setBody(pcm()))
-        val (done, _) = speak(CloudVoiceConfig("fish", "fish-key", "s2.1-pro", "abc123", url()))
+        val (done, _) = speak(CloudVoiceConfig("fish", "fish-key", "s2.1-pro", "abc123", com.jarvis.assistant.CLOUD_VOICES.first { it.id == "fish" }.defaultBaseUrl))
         assertTrue(done)
         val req = server.takeRequest(1, TimeUnit.SECONDS)!!
         assertEquals("/v1/tts", req.path)
@@ -122,7 +128,7 @@ class CloudVoiceTest {
     @Test
     fun badKeyIsReportedClearly() {
         server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"message":"Incorrect API key provided"}}"""))
-        val (done, failed) = speak(CloudVoiceConfig("openai", "wrong", "gpt-4o-mini-tts", "onyx", url()))
+        val (done, failed) = speak(CloudVoiceConfig("openai", "wrong", "gpt-4o-mini-tts", "onyx", com.jarvis.assistant.CLOUD_VOICES.first { it.id == "openai" }.defaultBaseUrl))
         assertFalse(done)
         assertTrue(failed!!, "check the API key" in failed && "Incorrect API key" in failed)
     }
@@ -130,7 +136,7 @@ class CloudVoiceTest {
     @Test
     fun stalledRequestFallsBackOnceEvenIfTheProviderNeverSendsHeaders() {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
-        val voice = CloudVoice()
+        val voice = testVoice()
         val config = CloudVoiceConfig("custom", "", "tts-1", "alloy", url())
         val failures = mutableListOf<String>()
         var completions = 0
@@ -170,7 +176,7 @@ class CloudVoiceTest {
     @Test
     fun stoppingAStalledRequestSuppressesFallback() {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
-        val voice = CloudVoice()
+        val voice = testVoice()
         val config = CloudVoiceConfig("custom", "", "tts-1", "alloy", url())
         var callbacks = 0
         voice.speak(config, "Hello.", 1f, { callbacks++ }) { callbacks++ }
@@ -182,16 +188,17 @@ class CloudVoiceTest {
     }
 
     @Test
-    fun speakerFallsBackToALocalVoiceWhenTheCloudFails() {
+    fun speakerUsesLocalVoiceForLegacyCleartextProfile() {
         server.enqueue(MockResponse().setResponseCode(500))
         val settings = Settings(ctx)
         settings.voiceEngine = "custom"
-        settings.saveCloudVoice(CloudVoiceConfig("custom", "", "tts-1", "alloy", url()))
+        settings.saveCloudVoice(CloudVoiceConfig("custom", "", "tts-1", "alloy", server.url("/v1").toString()))
         var done = false
         val speaker = Speaker(ctx)
         speaker.speak("Hello there.") { done = true }
         waitFor { speaker.lastError != null }
-        assertTrue(speaker.lastError!!, "error 500" in speaker.lastError!!)
+        assertTrue(speaker.lastError!!, "HTTPS" in speaker.lastError!!)
+        assertEquals(0, server.requestCount)
         // Android's voice takes over and says the same sentence.
         waitFor { org.robolectric.shadows.ShadowTextToSpeech.getLastTextToSpeechInstance() != null }
         val tts = org.robolectric.shadows.ShadowTextToSpeech.getLastTextToSpeechInstance()!!

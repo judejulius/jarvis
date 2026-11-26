@@ -108,7 +108,7 @@
     <string name="runtime_failed">On-device model problem: %1$s</string>
     <string name="runtime_installed">On-device model: installed. It starts when needed and stops after a while to save memory.</string>
     <string name="runtime_not_downloaded">The on-device model (about 1 GB) is not downloaded yet.</string>
-    <string name="local_none">No on-phone model is set up. Add one on the Models page, for example http://127.0.0.1:8080/v1.</string>
+    <string name="local_none">No on-phone model is set up. Add one on the Models page, for example https://localhost:8080/v1.</string>
     <string name="local_checking">On-phone model: checking…</string>
     <string name="local_running">On-phone model (%1$s): running.</string>
     <string name="local_loading">On-phone model (%1$s): loading…</string>
