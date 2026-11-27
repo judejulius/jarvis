@@ -32,6 +32,7 @@ class HomeFragment : Fragment() {
         }
         ui.abortButton.setOnClickListener { if (JarvisService.running) startJarvis(JarvisService.ACTION_STOP_TASK) }
         ui.talkButton.setOnClickListener { startJarvis(JarvisService.ACTION_LISTEN) }
+        ui.routinesButton.setOnClickListener { startActivity(Intent(requireContext(), RoutinesActivity::class.java)) }
         ui.historyButton.setOnClickListener {
             startActivity(Intent(requireContext(), MemoryActivity::class.java).putExtra(MemoryActivity.EXTRA_HISTORY, true))
         }

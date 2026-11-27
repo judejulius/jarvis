@@ -48,6 +48,9 @@ import com.jarvis.assistant.tasks.TaskHistory
 import com.jarvis.assistant.tasks.TaskBoard
 import com.jarvis.assistant.tasks.TaskControl
 import com.jarvis.assistant.tasks.TaskType
+import com.jarvis.assistant.routines.Routine
+import com.jarvis.assistant.routines.RoutineRun
+import com.jarvis.assistant.routines.RoutineStore
 import com.jarvis.assistant.runtime.RuntimeConfig
 import com.jarvis.assistant.router.AppMatcher
 import com.jarvis.assistant.router.FastActionExecutor
@@ -95,6 +98,8 @@ class JarvisService : Service() {
     @Volatile private var prestarting = false
 
     // ---- Tasks: what is running, what was cancelled, what must not run twice ----
+    private val routines by lazy { RoutineStore(this) }
+    private var pausedRoutine: RoutineRun? = null
     private val board = TaskBoard(now = { SystemClock.elapsedRealtime() })
     private val history by lazy { TaskHistory(this) }
     private val idCounter = AtomicInteger(0)
@@ -382,7 +387,7 @@ class JarvisService : Service() {
         if (destroyed) return
         interruptSpeech()
         if (stop) {
-            val said = if (state == State.WORKING) cancelForeground() else null
+            val said = if (state == State.WORKING || pausedRoutine != null) cancelForeground() else null
             interruptedWork = false
             heldDelivery = null
             state = State.IDLE
@@ -622,6 +627,8 @@ class JarvisService : Service() {
      * already done and cannot be undone. Instant commands and background answers are not touched.
      */
     private fun cancelForeground(): String? {
+        val wasPaused = pausedRoutine != null
+        pausedRoutine = null
         val outcome = board.foreground()?.let { board.cancel(it.id) }
         outcome?.let { history.finish(it.task.id, "Cancelled") }
         cancelled = true
@@ -629,7 +636,7 @@ class JarvisService : Service() {
         activeSession?.cancel()
         activeSession = null
         cancelAck()
-        return outcome?.message()
+        return outcome?.message() ?: getString(R.string.routine_stopped).takeIf { wasPaused }
     }
 
     private fun typeOf(c: FastCommand) = when (c) {
@@ -726,9 +733,14 @@ class JarvisService : Service() {
             phrasesLoaded = true
             worker.execute { if (!locked) runCatching { phraseMap = memoryStore.phraseCorrections() } }
         }
-        val task = PhraseCorrector.apply(spoken, phraseMap)
+        val key = Routine.key(spoken)
+        if (key == "cancel routine" || key == "रूटीन रोकें") { handleCancel(null); return }
+        val resume = key == "continue routine" || key == "रूटीन जारी रखें"
+        val prefix = listOf("run routine", "रूटीन चलाओ").firstOrNull { key == it || key.startsWith("$it ") }
+        val explicitRoutine = resume || prefix != null
+        val task = if (explicitRoutine) spoken else PhraseCorrector.apply(spoken, phraseMap)
         // Phrases about the tasks themselves are never tasks: "cancel", "stop that, open YouTube", "what are you doing".
-        when (val control = TaskControl.parse(task)) {
+        when (val control = if (explicitRoutine) null else TaskControl.parse(task)) {
             is TaskControl.Cancel -> { handleCancel(control.then); return }
             is TaskControl.Background -> { handleBackground(control.then); return }
             TaskControl.Status -> {
@@ -740,18 +752,29 @@ class JarvisService : Service() {
             }
             null -> Unit
         }
+        // A bare name must not intercept built-in commands such as "offline mode" or "forget my note".
+        val memoryIntent = if (explicitRoutine) null else MemoryIntentParser.parse(task)
+        val fast = if (!explicitRoutine && memoryIntent == null) FastCommandRouter.parse(task) else null
+        val routine = when {
+            resume -> pausedRoutine?.takeIf { it.routine in routines.all() }
+            memoryIntent != null || fast != null -> null
+            else -> {
+                val name = if (prefix == null) key else key.removePrefix(prefix).trim()
+                routines.all().firstOrNull { Routine.key(it.name) == name }?.let(::RoutineRun)
+            }
+        }
+        val routineRequest = explicitRoutine || routine != null
         // The same sentence heard twice (a double wake-up, an echo): do it once.
-        board.duplicateOf(task, DUPLICATE_WINDOW_MS)?.let { dup ->
+        board.duplicateOf(task, DUPLICATE_WINDOW_MS)?.takeUnless { resume && routine != null }?.let { dup ->
             Log.i(TAG, "ignoring a repeat of task ${dup.id}")
             resumeWork()
             return
         }
 
         trace.mark("heard")
-        val memoryIntent = MemoryIntentParser.parse(task)
-        val fast = if (memoryIntent == null) FastCommandRouter.parse(task) else null
+        pausedRoutine = null
         val type = when {
-            memoryIntent != null -> TaskType.PHONE
+            routineRequest || memoryIntent != null -> TaskType.PHONE
             fast != null && locked && needsUnlock(fast) -> TaskType.PHONE
             fast != null -> typeOf(fast)
             isPhoneAction(task) -> TaskType.PHONE
@@ -770,7 +793,7 @@ class JarvisService : Service() {
         }
         val id = idCounter.incrementAndGet()
         board.start(id, task, type)
-        val keep = !locked && settings.aiMode != AiMode.OFFLINE && memoryIntent == null && fast !is FastCommand.TypeText && fast !is FastCommand.Dial && fast !is FastCommand.CallContact
+        val keep = !routineRequest && !locked && settings.aiMode != AiMode.OFFLINE && memoryIntent == null && fast !is FastCommand.TypeText && fast !is FastCommand.Dial && fast !is FastCommand.CallContact
         if (keep) history.start(id, task, forContext = type != TaskType.INSTANT)
         if (type != TaskType.INSTANT) {
             taskId = id
@@ -786,6 +809,11 @@ class JarvisService : Service() {
         lastTask = task
         island { it.working(board.foreground()?.text ?: task) }
         update("Working on: ${board.foreground()?.text ?: task}")
+
+        if (routineRequest) {
+            runRoutine(task, id, routine, resume)
+            return
+        }
 
         // Instant paths first: what the user is teaching Jarvis, then simple phone commands. No language model involved,
         // so they work offline and finish in milliseconds.
@@ -830,6 +858,32 @@ class JarvisService : Service() {
             return
         }
         runModelTask(task, id, type)
+    }
+
+    private fun runRoutine(task: String, id: Int, run: RoutineRun?, resuming: Boolean) {
+        worker.execute {
+            val busy = RoutineRun.Result(false, getString(R.string.routine_busy))
+            val host = hostFor(id)
+            val result = withUi(true, busy) {
+                val unlocked = try { waitForUnlock(id) } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    false
+                }
+                if (!unlocked) return@withUi RoutineRun.Result(false, UNLOCK_PROMPT)
+                if (run == null) return@withUi RoutineRun.Result(false, getString(
+                    if (resuming) R.string.routine_not_paused else R.string.routine_not_found))
+                run.execute(this, { !host.isCancelled }) { step, progress ->
+                    host.status(progress)
+                    val action = fastActions.execute(step.command(), {}, { !host.isCancelled }, null)
+                    action.message.takeUnless { action.success }
+                }
+            }
+            main.post {
+                if (destroyed || isStale(id)) return@post
+                pausedRoutine = result.remaining.takeUnless { locked }
+                deliver(task, id, AgentResult(result.success, result.message), keepInHistory = false, via = "routine")
+            }
+        }
     }
 
     private fun needsUnlock(c: FastCommand) = when (c) {

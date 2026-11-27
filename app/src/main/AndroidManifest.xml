@@ -67,6 +67,8 @@
             android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <activity android:name=".ui.RoutinesActivity" android:exported="false" />
+
         <activity
             android:name=".memory.MemoryActivity"
             android:exported="false" />

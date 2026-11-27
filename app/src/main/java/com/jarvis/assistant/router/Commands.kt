@@ -10,6 +10,7 @@ enum class RuntimeAction { DOWNLOAD, STATUS }
 /** Things Jarvis can do straight away, without asking a language model. */
 sealed interface FastCommand {
     data class OpenApp(val query: String) : FastCommand
+    data class OpenInstalledApp(val packageName: String) : FastCommand
 
     /** key is one of: back, home, recents, notifications, quick_settings. */
     data class Press(val key: String) : FastCommand

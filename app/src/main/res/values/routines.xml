@@ -1,0 +1,45 @@
+<resources>
+    <string name="routines">Routines</string>
+    <string name="routine_create">Create your own</string>
+    <string name="routine_edit">Edit routine</string>
+    <string name="routine_edit_named">Edit %1$s</string>
+    <string name="routine_run">Run</string>
+    <string name="routine_run_named">Run %1$s</string>
+    <string name="routine_name">Routine name</string>
+    <string name="routine_add">Add action</string>
+    <string name="routine_add_notes">Add your notes app</string>
+    <string name="routine_preview">Preview and save</string>
+    <string name="routine_name_needed">Enter a name you can say to Jarvis.</string>
+    <string name="routine_steps_needed">Add at least one action.</string>
+    <string name="routine_duplicate">Another routine already uses that name.</string>
+    <string name="routine_step_row">%1$d. %2$s</string>
+    <string name="routine_delete_ask">Delete the routine “%1$s”?</string>
+    <string name="routine_change">Change action</string>
+    <string name="routine_up">Move up</string>
+    <string name="routine_down">Move down</string>
+    <string name="routine_remove">Remove step</string>
+    <string name="routine_action">Choose an action</string>
+    <string name="routine_volume">Media volume (%)</string>
+    <string name="routine_timer">Timer (minutes)</string>
+    <string name="routine_app">Open an app</string>
+    <string name="routine_volume_value">Set media volume to %1$d%%</string>
+    <string name="routine_timer_value">Start a timer for %1$d min</string>
+    <string name="routine_app_value">Open %1$s</string>
+    <string name="routine_range">Enter a number from %1$d to %2$d.</string>
+    <string name="routine_no_apps">No apps available to open.</string>
+    <string name="routine_app_missing">The selected app is no longer available on this phone.</string>
+    <string name="routine_stopped">Routine stopped.</string>
+    <string name="routine_progress">Step %1$d of %2$d. %3$s.</string>
+    <string name="routine_failed">%1$s %2$s</string>
+    <string name="routine_continue_hint">Say or type “continue routine” to skip this step and run the rest, or “cancel” to stop.</string>
+    <string name="routine_done">Finished %1$s.</string>
+    <plurals name="routine_partial">
+        <item quantity="one">Finished %1$s. Skipped %2$d step.</item>
+        <item quantity="other">Finished %1$s. Skipped %2$d steps.</item>
+    </plurals>
+    <string name="routine_busy">Another task is still using the screen. Try the routine again in a moment.</string>
+    <string name="routine_not_paused">There is no paused routine to continue.</string>
+    <string name="routine_not_found">I couldn’t find that routine. Check its name in Home → Routines.</string>
+    <string name="routine_voice_hint">Say the routine name or type it on Home.</string>
+    <string name="routine_volume_failed">Android couldn’t set the requested media volume.</string>
+</resources>

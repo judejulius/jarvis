@@ -17,6 +17,7 @@ import android.provider.AlarmClock
 import android.provider.MediaStore
 import android.util.Log
 import android.view.KeyEvent
+import com.jarvis.assistant.R
 import com.jarvis.assistant.Settings
 import com.jarvis.assistant.accessibility.JarvisAccessibilityService
 import com.jarvis.assistant.agent.SensitiveActions
@@ -98,6 +99,11 @@ class FastActionExecutor(
 
     private fun run(cmd: FastCommand, recordStep: (String) -> Unit, canAct: () -> Boolean, asker: ((String) -> String?)?): Result = when (cmd) {
         is FastCommand.OpenApp -> openApp(cmd.query, canAct, asker)
+        is FastCommand.OpenInstalledApp -> {
+            val entry = installedApps().firstOrNull { it.packageName == cmd.packageName }
+            if (entry == null) Result(true, false, app.getString(R.string.routine_app_missing))
+            else launchApp(entry, "package", canAct, requireForeground = true)
+        }
         is FastCommand.Press -> press(cmd.key)
         is FastCommand.Scroll -> withPhoneControl { svc ->
             val msg = svc.scroll(null, cmd.direction)
@@ -174,16 +180,20 @@ class FastActionExecutor(
             if (!canAct()) return Result(true, false, "Task stopped.")
             learnAlias(query, entry)
         }
+        return launchApp(entry, m.how, canAct)
+    }
+
+    private fun launchApp(entry: AppEntry, how: String, canAct: () -> Boolean, requireForeground: Boolean = false): Result {
         val svc = a11y
         if (!canAct()) return Result(true, false, "Task stopped.")
         val started = if (svc != null) svc.openPackage(entry.packageName, entry.activity) else startLaunchIntent(entry.packageName)
-        if (!started) return Result(true, false, "I couldn't open ${entry.label}.", entry, m.how)
+        if (!started) return Result(true, false, "I couldn't open ${entry.label}.", entry, how)
         if (svc == null) {
-            return Result(true, false, "I tried to open ${entry.label}. Turn on phone control in Jarvis so I can open apps reliably.", entry, m.how)
+            return Result(true, false, "I tried to open ${entry.label}. Turn on phone control in Jarvis so I can open apps reliably.", entry, how)
         }
         val shown = svc.waitForForeground(entry.packageName, FOREGROUND_WAIT_MS)
         val msg = if (shown) "Opened ${entry.label}." else "I asked Android to open ${entry.label}, but I couldn't confirm it came to the front."
-        return Result(true, true, msg, entry, m.how)
+        return Result(true, shown || !requireForeground, msg, entry, how)
     }
 
     private fun startLaunchIntent(pkg: String): Boolean {
@@ -226,6 +236,7 @@ class FastActionExecutor(
             VolumeChange.SET -> {
                 val level = ((cmd.percent ?: 50) * max / 100f).roundToInt().coerceIn(0, max)
                 am.setStreamVolume(stream, level, AudioManager.FLAG_SHOW_UI)
+                if (am.getStreamVolume(stream) != level) return Result(true, false, app.getString(R.string.routine_volume_failed))
             }
         }
         val percent = (am.getStreamVolume(stream) * 100f / max).roundToInt()

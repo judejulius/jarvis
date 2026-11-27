@@ -1,0 +1,45 @@
+<resources>
+    <string name="routines">रूटीन</string>
+    <string name="routine_create">अपना रूटीन बनाएँ</string>
+    <string name="routine_edit">रूटीन बदलें</string>
+    <string name="routine_edit_named">%1$s बदलें</string>
+    <string name="routine_run">चलाएँ</string>
+    <string name="routine_run_named">%1$s चलाएँ</string>
+    <string name="routine_name">रूटीन का नाम</string>
+    <string name="routine_add">चरण जोड़ें</string>
+    <string name="routine_add_notes">अपना नोट्स ऐप जोड़ें</string>
+    <string name="routine_preview">देखें और सहेजें</string>
+    <string name="routine_name_needed">ऐसा नाम लिखें जो आप जार्विस से कह सकें।</string>
+    <string name="routine_steps_needed">कम से कम एक चरण जोड़ें।</string>
+    <string name="routine_duplicate">इस नाम का रूटीन पहले से है।</string>
+    <string name="routine_step_row">%1$d. %2$s</string>
+    <string name="routine_delete_ask">“%1$s” रूटीन हटाएँ?</string>
+    <string name="routine_change">चरण बदलें</string>
+    <string name="routine_up">ऊपर ले जाएँ</string>
+    <string name="routine_down">नीचे ले जाएँ</string>
+    <string name="routine_remove">चरण हटाएँ</string>
+    <string name="routine_action">चरण चुनें</string>
+    <string name="routine_volume">मीडिया वॉल्यूम (%)</string>
+    <string name="routine_timer">टाइमर (मिनट)</string>
+    <string name="routine_app">ऐप खोलें</string>
+    <string name="routine_volume_value">मीडिया वॉल्यूम %1$d%% करें</string>
+    <string name="routine_timer_value">%1$d मिनट का टाइमर शुरू करें</string>
+    <string name="routine_app_value">%1$s खोलें</string>
+    <string name="routine_range">%1$d से %2$d के बीच कोई संख्या लिखें।</string>
+    <string name="routine_no_apps">खोलने के लिए कोई ऐप नहीं मिला।</string>
+    <string name="routine_app_missing">चुना हुआ ऐप इस फ़ोन पर उपलब्ध नहीं है।</string>
+    <string name="routine_stopped">रूटीन रोक दिया गया।</string>
+    <string name="routine_progress">चरण %1$d/%2$d। %3$s।</string>
+    <string name="routine_failed">%1$s %2$s</string>
+    <string name="routine_continue_hint">इस चरण को छोड़कर आगे बढ़ने के लिए “रूटीन जारी रखें” कहें या लिखें। रोकने के लिए “cancel” कहें।</string>
+    <string name="routine_done">%1$s पूरा हुआ।</string>
+    <plurals name="routine_partial">
+        <item quantity="one">%1$s पूरा हुआ। %2$d चरण छोड़ा गया।</item>
+        <item quantity="other">%1$s पूरा हुआ। %2$d चरण छोड़े गए।</item>
+    </plurals>
+    <string name="routine_busy">दूसरा काम अभी स्क्रीन इस्तेमाल कर रहा है। थोड़ी देर में रूटीन फिर चलाएँ।</string>
+    <string name="routine_not_paused">जारी रखने के लिए कोई रुका हुआ रूटीन नहीं है।</string>
+    <string name="routine_not_found">वह रूटीन नहीं मिला। होम → रूटीन में उसका नाम देखें।</string>
+    <string name="routine_voice_hint">रूटीन का नाम कहें या होम पर लिखें।</string>
+    <string name="routine_volume_failed">Android अनुरोधित मीडिया वॉल्यूम सेट नहीं कर सका।</string>
+</resources>

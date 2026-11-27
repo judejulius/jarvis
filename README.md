@@ -70,6 +70,14 @@ Phone assistants can answer questions, but most of them can't use your apps for 
 - Asks you a spoken question when it needs to, for example *"Which Sarah, Sarah Jones or Sarah Lee?"*
 - Wakes the screen and asks you to unlock when the phone is locked.
 
+### Personal routines
+
+In **Home → Routines**, run **Study time** to set media volume to 20% and ask your clock app to start a 25-minute timer. Tap the routine name to edit it. **Add your notes app** lets you choose which installed app should open next.
+
+Choose **Create your own** to name a routine and arrange up to five actions. Tap a step to change, move, or remove it, then choose **Preview and save**. Say “Hey Jarvis, study time”, type the name on Home, or tap **Run**. You can also say “run routine” followed by its name.
+
+Routine steps run locally on an unlocked phone. If a step fails, Jarvis tells you which step stopped. Say or type “continue routine” to skip it and run the remaining steps, or “cancel” to stop. A new command or locking the phone clears a paused routine.
+
 ### Many models, with backups
 - Add as many models as you like and star one as the primary.
 - **Backup models.** If the primary fails mid-task (offline, out of credit, server down), the next one takes over and is told what's already been done.
